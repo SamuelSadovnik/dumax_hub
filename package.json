@@ -1,0 +1,28 @@
+{
+  "name": "dumax-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dumax Hub — hub empresarial: recrutamento, clima, demandas, chat interno, organograma e métricas.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c auto \"npm run dev -w @dumax/api\" \"npm run dev -w @dumax/web\"",
+    "db:up": "docker compose up -d db",
+    "db:migrate": "npm run db:migrate -w @dumax/api --",
+    "db:seed": "npm run db:seed -w @dumax/api",
+    "db:reset": "npm run db:reset -w @dumax/api",
+    "db:studio": "npm run db:studio -w @dumax/api",
+    "setup": "npm run db:migrate -- --name init && npm run db:seed",
+    "build": "npm run build -w @dumax/api && npm run build -w @dumax/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "secrets": "node scripts/secrets.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

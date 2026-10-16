@@ -1,0 +1,288 @@
+import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import clsx from 'clsx';
+import { AlertTriangle, ArrowUpRight, CalendarDays, CheckCircle2, FileSignature, Fingerprint, ShieldAlert, Smile, Target, Video } from 'lucide-react';
+import { FLAG_COLOR, LICENSE_STATE_COLOR, TASK_PRIORITY_COLOR, formatGoalValue, type FlagSeverity } from '@dumax/shared';
+import { api } from '@/lib/api';
+import { useMe } from '@/lib/auth';
+import type { Announcement, Inbox } from '@/lib/types';
+import { dueLabel, fmtTime, fmtWeekday, fromNow } from '@/lib/format';
+import { Avatar, Badge, Panel, PageLoader, ProgressBar, StatCard } from '@/components/ui';
+import { TaskTimerButton, useElapsed, useTimer } from '@/components/Timer';
+
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+}
+
+interface Pending {
+  key: string;
+  icon: ReactNode;
+  tone: 'bad' | 'warn' | 'brand';
+  text: ReactNode;
+  to: string;
+  cta: string;
+}
+
+function RunningTimerBar() {
+  const { running, stop } = useTimer();
+  const elapsed = useElapsed(running?.startedAt);
+  if (!running) return null;
+  return (
+    <div className="mb-5 flex items-center gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5">
+      <span className="relative flex h-2.5 w-2.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-400 opacity-60" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand-500" />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm text-ink-700">
+        Registrando tempo em <strong className="font-semibold text-ink-900">{running.task?.title ?? running.description ?? 'atividade'}</strong>
+      </span>
+      <span className="num text-sm font-semibold text-brand-700">{elapsed}</span>
+      <button onClick={() => stop.mutate()} className="rounded-md bg-white px-2.5 py-1 text-[13px] font-medium text-ink-700 shadow-sm hover:bg-ink-50">
+        Parar
+      </button>
+    </div>
+  );
+}
+
+export default function Home() {
+  const me = useMe();
+  const { data: inbox, isLoading } = useQuery({ queryKey: ['inbox'], queryFn: () => api.get<Inbox>('/inbox'), refetchInterval: 60_000 });
+  const { data: announcements } = useQuery({ queryKey: ['announcements'], queryFn: () => api.get<Announcement[]>('/feed/announcements') });
+
+  if (isLoading || !inbox) return <PageLoader />;
+
+  const pending: Pending[] = [
+    ...inbox.documentsToSign.map((d) => ({
+      key: `doc-${d.id}`,
+      icon: <FileSignature />,
+      tone: 'brand' as const,
+      text: (
+        <>
+          <strong className="font-medium text-ink-900">{d.title}</strong> aguarda sua assinatura · enviado por {d.from}
+        </>
+      ),
+      to: `/assinar/${d.token}`,
+      cta: 'Assinar',
+    })),
+    ...(inbox.tasks.overdue
+      ? [{ key: 'overdue', icon: <AlertTriangle />, tone: 'bad' as const, text: <>{inbox.tasks.overdue} demanda(s) atrasada(s)</>, to: '/demandas', cta: 'Ver demandas' }]
+      : []),
+    ...inbox.licenses.map((l) => ({
+      key: `lic-${l.id}`,
+      icon: <ShieldAlert />,
+      tone: (l.state === 'EXPIRED' ? 'bad' : 'warn') as 'bad' | 'warn',
+      text: (
+        <>
+          <strong className="font-medium text-ink-900">{l.name}</strong> {l.daysLeft < 0 ? `venceu há ${-l.daysLeft} dia(s)` : l.daysLeft === 0 ? 'vence hoje' : `vence em ${l.daysLeft} dia(s)`} · você é responsável
+        </>
+      ),
+      to: `/licencas?id=${l.id}`,
+      cta: 'Renovar',
+    })),
+    ...(inbox.pontoToValidate
+      ? [{ key: 'ponto', icon: <Fingerprint />, tone: 'warn' as const, text: <>{inbox.pontoToValidate} dia(s) de ponto para conferir e confirmar</>, to: '/ponto', cta: 'Conferir' }]
+      : []),
+    ...(inbox.pulse && !inbox.pulse.answered
+      ? [{ key: 'pulse', icon: <Smile />, tone: 'brand' as const, text: <>Pulse da semana: {inbox.pulse.question}</>, to: '/clima', cta: 'Responder' }]
+      : []),
+    ...(inbox.team?.contestedPonto
+      ? [{ key: 'contest', icon: <Fingerprint />, tone: 'bad' as const, text: <>{inbox.team.contestedPonto} contestação(ões) de ponto do seu time</>, to: '/admin/ponto?validation=CONTESTED', cta: 'Revisar' }]
+      : []),
+  ];
+  const toneCls = { bad: 'bg-bad-soft text-bad', warn: 'bg-warn-soft text-warn', brand: 'bg-brand-50 text-brand-600' };
+
+  return (
+    <div>
+      <div className="mb-5">
+        <p className="text-sm capitalize text-ink-500">{fmtWeekday(new Date())}</p>
+        <h1 className="text-[22px] font-semibold">
+          {greeting()}, {me.name.split(' ')[0]}
+        </h1>
+      </div>
+
+      <RunningTimerBar />
+
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Demandas abertas" value={inbox.tasks.open} />
+        <StatCard label="Atrasadas" value={inbox.tasks.overdue} tone={inbox.tasks.overdue ? 'danger' : 'default'} />
+        <StatCard label="Vencem hoje" value={inbox.tasks.dueToday} tone={inbox.tasks.dueToday ? 'warn' : 'default'} />
+        <StatCard label="Reuniões hoje" value={inbox.meetingsToday.length} />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 space-y-6">
+          <Panel title="Pendências" subtitle={pending.length ? `${pending.length} item(ns) pedindo sua ação` : undefined}>
+            {pending.length ? (
+              <ul>
+                {pending.map((p) => (
+                  <li key={p.key} className="flex items-center gap-3 border-b border-ink-100 px-4 py-3 last:border-0">
+                    <span className={clsx('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg [&>svg]:h-4 [&>svg]:w-4', toneCls[p.tone])}>{p.icon}</span>
+                    <span className="min-w-0 flex-1 text-sm text-ink-600">{p.text}</span>
+                    <Link to={p.to} className="shrink-0 rounded-md border border-ink-200 px-2.5 py-1 text-[13px] font-medium text-ink-700 hover:border-ink-300 hover:bg-ink-50">
+                      {p.cta}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex items-center gap-3 px-4 py-5 text-sm text-ink-500">
+                <CheckCircle2 className="h-5 w-5 text-ok" /> Nada pendente com você agora.
+              </div>
+            )}
+          </Panel>
+
+          <Panel
+            title="Minhas demandas"
+            actions={
+              <Link to="/demandas" className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline">
+                Abrir quadro <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            }
+          >
+            {inbox.tasks.top.length ? (
+              <ul>
+                {inbox.tasks.top.map((t) => {
+                  const due = dueLabel(t.dueAt);
+                  return (
+                    <li key={t.id} className="flex items-center gap-3 border-b border-ink-100 px-4 py-2.5 last:border-0 hover:bg-ink-50/60">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: TASK_PRIORITY_COLOR[t.priority] }} />
+                      <Link to={`/demandas?task=${t.id}`} className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-ink-900">{t.title}</span>
+                        <span className="block text-xs text-ink-500">de {t.createdBy.name}</span>
+                      </Link>
+                      {due && <Badge tone={due.tone === 'danger' ? 'bad' : due.tone === 'warn' ? 'warn' : 'neutral'}>{due.text}</Badge>}
+                      <TaskTimerButton taskId={t.id} compact />
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="px-4 py-5 text-sm text-ink-500">Nenhuma demanda aberta com você.</p>
+            )}
+          </Panel>
+
+          {inbox.team && inbox.team.alerts.length > 0 && (
+            <Panel
+              title="Atenção no time"
+              subtitle="Alertas de desempenho dos últimos 14 dias"
+              actions={
+                <Link to="/admin" className="flex items-center gap-1 text-[13px] font-medium text-brand-600 hover:underline">
+                  Ver desempenho <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              }
+            >
+              <ul>
+                {inbox.team.alerts.map((a, i) => (
+                  <li key={i}>
+                    <Link to={`/admin/desempenho/${a.user.id}`} className="flex items-center gap-3 border-b border-ink-100 px-4 py-2.5 last:border-0 hover:bg-ink-50/60">
+                      <Avatar user={a.user} size={28} />
+                      <span className="w-36 shrink-0 truncate text-sm font-medium">{a.user.name}</span>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: FLAG_COLOR[a.severity as FlagSeverity] }} />
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink-600">{a.message}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
+        </div>
+
+        <aside className="space-y-6">
+          <Panel title="Hoje" actions={<CalendarDays className="h-4 w-4 text-ink-400" />}>
+            {inbox.meetingsToday.length ? (
+              <ul className="px-4 py-2">
+                {inbox.meetingsToday.map((m) => (
+                  <li key={m.id} className="flex gap-3 py-2">
+                    <span className="num w-12 shrink-0 pt-0.5 text-sm font-semibold text-ink-900">{fmtTime(m.startsAt)}</span>
+                    <span className="min-w-0 flex-1 border-l-2 border-brand-400 pl-3">
+                      <Link to={`/agenda?meeting=${m.id}`} className="block truncate text-sm font-medium hover:text-brand-700">
+                        {m.title}
+                      </Link>
+                      <span className="block text-xs text-ink-500">até {fmtTime(m.endsAt)}</span>
+                    </span>
+                    {m.videoUrl && (
+                      <a href={m.videoUrl} target="_blank" rel="noreferrer" title="Entrar na chamada" className="self-center rounded-md p-1.5 text-brand-600 hover:bg-brand-50">
+                        <Video className="h-4 w-4" />
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-4 py-4 text-sm text-ink-500">Sem reuniões hoje.</p>
+            )}
+          </Panel>
+
+          <Panel
+            title="Minhas metas"
+            actions={
+              <Link to="/metas" className="text-ink-400 hover:text-ink-700">
+                <Target className="h-4 w-4" />
+              </Link>
+            }
+          >
+            {inbox.goals.length ? (
+              <ul className="space-y-4 px-4 py-3.5">
+                {inbox.goals.map((g) => {
+                  const behind = g.elapsed - g.progress > 0.2;
+                  return (
+                    <li key={g.id}>
+                      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                        <span className="truncate text-sm font-medium">{g.title}</span>
+                        <span className="num shrink-0 text-xs text-ink-500">
+                          {formatGoalValue(g.currentValue, g.unit)} / {formatGoalValue(g.targetValue, g.unit)}
+                        </span>
+                      </div>
+                      <ProgressBar value={g.progress} marker={g.elapsed} color={behind ? '#C77700' : '#2D3FE0'} />
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="px-4 py-4 text-sm text-ink-500">Nenhuma meta ativa.</p>
+            )}
+          </Panel>
+
+          <Panel
+            title="Comunicados"
+            actions={
+              <Link to="/mural" className="text-[13px] font-medium text-brand-600 hover:underline">
+                Mural
+              </Link>
+            }
+          >
+            <ul>
+              {(announcements ?? []).slice(0, 3).map((a) => (
+                <li key={a.id} className="border-b border-ink-100 px-4 py-3 last:border-0">
+                  <p className="text-sm font-medium text-ink-900">{a.title}</p>
+                  <p className="mt-0.5 line-clamp-2 text-[13px] text-ink-600">{a.body}</p>
+                  <p className="mt-1 text-2xs text-ink-400">
+                    {a.author.name} · {fromNow(a.createdAt)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+
+          {inbox.licenses.length > 0 && (
+            <Panel title="Licenças sob sua responsabilidade">
+              <ul>
+                {inbox.licenses.map((l) => (
+                  <li key={l.id}>
+                    <Link to={`/licencas?id=${l.id}`} className="flex items-center gap-2 border-b border-ink-100 px-4 py-2.5 text-sm last:border-0 hover:bg-ink-50/60">
+                      <span className="h-2 w-2 rounded-full" style={{ background: LICENSE_STATE_COLOR[l.state] }} />
+                      <span className="flex-1 truncate">{l.name}</span>
+                      <span className="num text-xs text-ink-500">{l.daysLeft < 0 ? `vencida` : `${l.daysLeft} dias`}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+}

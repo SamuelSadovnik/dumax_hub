@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+*.log
+.DS_Store
+apps/api/uploads
+coverage
+.vite
+.env.*
+!.env.example
+_to_delete
+*.tar.gz

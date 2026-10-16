@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-canvas text-ink-900 antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  body {
+    @apply font-sans text-[14px] leading-[1.5];
+  }
+  h1, h2, h3 {
+    @apply font-display font-semibold tracking-[-0.015em];
+  }
+  ::selection {
+    @apply bg-brand-100;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-400 ring-offset-1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+}
+
+@layer components {
+  /* superfície padrão */
+  .card {
+    @apply rounded-xl border border-ink-200 bg-white;
+  }
+  .input {
+    @apply h-9 w-full rounded-lg border border-ink-200 bg-white px-3 text-sm text-ink-900 outline-none transition
+      placeholder:text-ink-400 hover:border-ink-300 focus:border-brand-400 focus:shadow-focus disabled:bg-ink-50 disabled:text-ink-500;
+  }
+  textarea.input { @apply h-auto py-2; }
+  .input-error { @apply border-bad focus:border-bad; }
+  .label {
+    @apply mb-1.5 block text-[13px] font-medium text-ink-700;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.ink.300') transparent;
+  }
+  /* tabela padrão */
+  .tbl { @apply w-full text-sm; }
+  .tbl th { @apply h-9 border-b border-ink-200 bg-ink-50 px-3 text-left text-[12px] font-medium text-ink-500 first:pl-4 last:pr-4; }
+  .tbl td { @apply h-12 border-b border-ink-100 px-3 align-middle first:pl-4 last:pr-4; }
+  .tbl tbody tr:last-child td { @apply border-b-0; }
+  .tbl tbody tr.clickable { @apply cursor-pointer hover:bg-ink-50; }
+
+  .prose-hub p { @apply mb-2 last:mb-0; }
+  .prose-hub ul { @apply mb-2 list-disc pl-5; }
+  .prose-hub ol { @apply mb-2 list-decimal pl-5; }
+  .prose-hub a { @apply font-medium text-brand-600 underline underline-offset-2; }
+  .prose-hub table { @apply my-2 w-full text-left text-xs; }
+  .prose-hub th { @apply border-b border-ink-200 px-2 py-1 font-semibold; }
+  .prose-hub td { @apply border-b border-ink-100 px-2 py-1; }
+  .prose-hub strong { @apply font-semibold; }
+  .prose-hub code { @apply rounded bg-ink-100 px-1 text-[0.85em]; }
+}
+
+.chat-wallpaper {
+  background-color: theme('colors.chat.bg');
+  background-image:
+    radial-gradient(rgba(13, 19, 48, 0.045) 1px, transparent 1px),
+    radial-gradient(rgba(13, 19, 48, 0.03) 1px, transparent 1px);
+  background-size: 22px 22px, 22px 22px;
+  background-position: 0 0, 11px 11px;
+}
