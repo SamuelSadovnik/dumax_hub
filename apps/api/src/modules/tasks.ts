@@ -4,7 +4,7 @@ import type { Prisma, TaskStatus } from '@prisma/client';
 import { TASK_STATUS_LABEL } from '@dumax/shared';
 import { prisma, userLite } from '../lib/prisma';
 import { authenticate, isHR, visibleUserIds, type AuthUser } from '../lib/auth';
-import { badRequest, forbidden, notFound, parse } from '../lib/http';
+import { badRequest, forbidden, notFound, parse, queryBool } from '../lib/http';
 import { notify } from '../lib/notify';
 import { emitToUsers } from '../lib/realtime';
 import { stopRunningTimer } from './performance/timelogs';
@@ -19,6 +19,7 @@ export const taskInclude = {
   team: { select: { id: true, name: true } },
   checklist: { orderBy: { position: 'asc' } },
   _count: { select: { comments: true } },
+  extensionRequests: { where: { status: 'PENDING' }, select: { id: true, requestedDueAt: true, reason: true, requesterId: true } },
 } satisfies Prisma.TaskInclude;
 
 const createInput = z.object({
@@ -90,9 +91,9 @@ export async function taskRoutes(app: FastifyInstance) {
         scope: z.enum(['mine', 'created', 'team', 'all', 'user']).default('mine'),
         userId: z.string().optional(),
         status: z.string().optional(), // "TODO,IN_PROGRESS"
-        overdue: z.coerce.boolean().optional(),
+        overdue: queryBool().optional(),
         search: z.string().optional(),
-        includeDone: z.coerce.boolean().default(true),
+        includeDone: queryBool().default(true),
       }),
       req.query,
     );
@@ -144,7 +145,7 @@ export async function taskRoutes(app: FastifyInstance) {
         ...taskInclude,
         comments: { orderBy: { createdAt: 'asc' }, include: { author: { select: userLite } } },
         activities: { orderBy: { createdAt: 'desc' }, include: { actor: { select: userLite } } },
-        timeLogs: { orderBy: { startedAt: 'desc' }, take: 50, select: { id: true, minutes: true, startedAt: true, endedAt: true, activity: true, user: { select: userLite } } },
+        extensionRequests: { orderBy: { createdAt: 'desc' }, include: { requester: { select: userLite }, decidedBy: { select: userLite } } },
       },
     });
   });
@@ -166,6 +167,16 @@ export async function taskRoutes(app: FastifyInstance) {
       }),
       req.body,
     );
+
+    // Prazo definido por outra pessoa: quem recebeu não altera — pede prorrogação
+    const dueChanged = body.dueAt !== undefined && (body.dueAt?.getTime() ?? null) !== (task.dueAt?.getTime() ?? null);
+    if (dueChanged && req.auth.id === task.assigneeId && task.createdById !== task.assigneeId) {
+      throw forbidden('O prazo foi definido por quem enviou a demanda. Peça uma prorrogação.');
+    }
+
+    // Demanda enviada por outra pessoa: quem recebeu entrega e quem enviou aprova
+    const needsApproval = req.auth.id === task.assigneeId && task.createdById !== task.assigneeId;
+    if (needsApproval && body.status === 'DONE') body.status = 'IN_REVIEW';
 
     const activities: Prisma.TaskActivityCreateWithoutTaskInput[] = [];
     const actor = { connect: { id: req.auth.id } };
@@ -190,10 +201,11 @@ export async function taskRoutes(app: FastifyInstance) {
     if (body.status && body.status !== task.status) {
       const other = req.auth.id === task.assigneeId ? task.createdById : task.assigneeId;
       if (other !== req.auth.id) {
+        const delivered = needsApproval && body.status === 'IN_REVIEW';
         await notify([other], {
-          type: 'task.status',
-          title: `${task.title}`,
-          body: `${req.auth.name} mudou para "${TASK_STATUS_LABEL[body.status]}"`,
+          type: delivered ? 'task.review' : 'task.status',
+          title: delivered ? `${req.auth.name} entregou: ${task.title}` : `${task.title}`,
+          body: delivered ? 'Confira e aprove a entrega ou peça ajustes.' : `${req.auth.name} mudou para "${TASK_STATUS_LABEL[body.status]}"`,
           link: `/demandas?task=${id}`,
         });
       }
@@ -201,6 +213,88 @@ export async function taskRoutes(app: FastifyInstance) {
     if (body.status === 'DONE' || body.status === 'CANCELED') await stopRunningTimer(task.assigneeId, id);
     emitToUsers([task.assigneeId, task.createdById], 'task:update', updated);
     return updated;
+  });
+
+  /** Quem enviou a demanda aprova a entrega ou pede ajustes */
+  app.post('/:id/review', async (req) => {
+    const { id } = req.params as { id: string };
+    const task = await loadTaskFor(req.auth, id);
+    const body = parse(z.object({ approve: z.boolean(), note: z.string().trim().max(2000).optional() }), req.body);
+    if (task.createdById !== req.auth.id && !isHR(req.auth)) throw forbidden('Só quem enviou a demanda aprova a entrega');
+    if (task.status !== 'IN_REVIEW') throw badRequest('A demanda não está aguardando aprovação');
+    if (!body.approve && !body.note) throw badRequest('Diga o que precisa ser ajustado');
+    const updated = await prisma.task.update({
+      where: { id },
+      data: {
+        status: body.approve ? 'DONE' : 'IN_PROGRESS',
+        completedAt: body.approve ? new Date() : null,
+        activities: { create: { actorId: req.auth.id, type: 'STATUS_CHANGED', data: { from: 'IN_REVIEW', to: body.approve ? 'DONE' : 'IN_PROGRESS', review: body.approve ? 'approved' : 'changes' } } },
+        ...(body.note ? { comments: { create: { authorId: req.auth.id, body: body.approve ? body.note : `Ajustes pedidos: ${body.note}` } } } : {}),
+      },
+      include: taskInclude,
+    });
+    await notify([task.assigneeId], {
+      type: 'task.review',
+      title: body.approve ? `Entrega aprovada ✓ ${task.title}` : `Ajustes pedidos em ${task.title}`,
+      body: body.note ?? undefined,
+      link: `/demandas?task=${id}`,
+    });
+    emitToUsers([task.assigneeId, task.createdById], 'task:update', updated);
+    return updated;
+  });
+
+  /** Pedido de prorrogação: só quem recebeu uma demanda de outra pessoa */
+  app.post('/:id/extension', async (req) => {
+    const { id } = req.params as { id: string };
+    const task = await loadTaskFor(req.auth, id);
+    const body = parse(z.object({ requestedDueAt: z.coerce.date(), reason: z.string().trim().min(3, 'Explique o motivo').max(500) }), req.body);
+    if (task.assigneeId !== req.auth.id || task.createdById === req.auth.id) throw forbidden('Só quem recebeu a demanda pede prorrogação');
+    if (task.status === 'DONE' || task.status === 'CANCELED') throw badRequest('A demanda já foi encerrada');
+    if (body.requestedDueAt.getTime() <= Date.now()) throw badRequest('Escolha uma data no futuro');
+    if (task.dueAt && body.requestedDueAt.getTime() <= task.dueAt.getTime()) throw badRequest('A nova data precisa ser depois do prazo atual');
+    const pending = await prisma.taskExtensionRequest.findFirst({ where: { taskId: id, status: 'PENDING' } });
+    if (pending) throw badRequest('Já existe um pedido aguardando resposta');
+    const r = await prisma.taskExtensionRequest.create({
+      data: { taskId: id, requesterId: req.auth.id, previousDueAt: task.dueAt, requestedDueAt: body.requestedDueAt, reason: body.reason },
+    });
+    await prisma.taskActivity.create({ data: { taskId: id, actorId: req.auth.id, type: 'UPDATED', data: { kind: 'EXTENSION_REQUESTED', to: body.requestedDueAt.toISOString() } } });
+    await notify([task.createdById], {
+      type: 'task.extension',
+      title: `${req.auth.name} pediu mais prazo`,
+      body: `${task.title}: ${body.reason.slice(0, 120)}`,
+      link: `/demandas?task=${id}`,
+    });
+    emitToUsers([task.assigneeId, task.createdById], 'task:update', { id });
+    return r;
+  });
+
+  /** Quem enviou (ou o RH) aprova ou recusa a prorrogação */
+  app.post('/:id/extension/:requestId/decide', async (req) => {
+    const { id, requestId } = req.params as { id: string; requestId: string };
+    const task = await loadTaskFor(req.auth, id);
+    const body = parse(z.object({ approve: z.boolean(), note: z.string().max(500).optional() }), req.body);
+    if (task.createdById !== req.auth.id && !isHR(req.auth)) throw forbidden('Só quem enviou a demanda responde ao pedido');
+    const r = await prisma.taskExtensionRequest.findFirst({ where: { id: requestId, taskId: id } });
+    if (!r) throw notFound('Pedido não encontrado');
+    if (r.status !== 'PENDING') throw badRequest('Este pedido já foi respondido');
+    await prisma.$transaction([
+      prisma.taskExtensionRequest.update({
+        where: { id: requestId },
+        data: { status: body.approve ? 'APPROVED' : 'REJECTED', decidedById: req.auth.id, decidedAt: new Date(), decisionNote: body.note },
+      }),
+      ...(body.approve ? [prisma.task.update({ where: { id }, data: { dueAt: r.requestedDueAt } })] : []),
+      prisma.taskActivity.create({
+        data: { taskId: id, actorId: req.auth.id, type: 'UPDATED', data: { kind: body.approve ? 'EXTENSION_APPROVED' : 'EXTENSION_REJECTED', to: r.requestedDueAt.toISOString() } },
+      }),
+    ]);
+    await notify([r.requesterId], {
+      type: 'task.extension',
+      title: body.approve ? 'Prorrogação aprovada ✓' : 'Prorrogação recusada',
+      body: `${task.title}${body.note ? `: ${body.note}` : ''}`,
+      link: `/demandas?task=${id}`,
+    });
+    emitToUsers([task.assigneeId, task.createdById], 'task:update', { id });
+    return { ok: true };
   });
 
   /** Delegar: transfere a demanda para outra pessoa, mantendo histórico */

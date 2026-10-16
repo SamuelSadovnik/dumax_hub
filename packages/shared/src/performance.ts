@@ -32,11 +32,12 @@ export const TIMELOG_ACTIVITY_COLOR: Record<TimeLogActivity | 'AGENDA' | 'SEM_RE
  * e o peso é redistribuído entre os demais.
  */
 export const SCORE_WEIGHTS = {
-  onTime: 0.2, // % de demandas entregues no prazo
-  throughput: 0.2, // volume entregue vs. mediana do grupo
-  utilization: 0.25, // horas com atividade registrada / horas trabalhadas no ponto
-  punctuality: 0.15, // dias sem atraso / dias trabalhados
-  goals: 0.2, // progresso médio das metas
+  onTime: 0.3, // % de demandas entregues no prazo
+  throughput: 0.25, // volume entregue vs. mediana do grupo
+  /** Desativado: o Hub não controla mais tempo por demanda (mantido só por compatibilidade) */
+  utilization: 0,
+  punctuality: 0.2, // dias sem atraso / dias trabalhados
+  goals: 0.25, // progresso médio das metas
 } as const;
 /** Desconto por demanda atrasada em aberto (máx. 15 pontos) */
 export const OVERDUE_PENALTY = { perTask: 3, max: 15 } as const;

@@ -4,7 +4,7 @@ import type { License, Prisma } from '@prisma/client';
 import { LICENSE_CATEGORY_LABEL, daysUntil, licenseState } from '@dumax/shared';
 import { prisma, userLite } from '../lib/prisma';
 import { authenticate, isHR, type AuthUser } from '../lib/auth';
-import { badRequest, forbidden, notFound, parse } from '../lib/http';
+import { badRequest, forbidden, notFound, parse, queryBool } from '../lib/http';
 import { mimeOf, readPrivate, saveUpload } from '../lib/storage';
 import { notify } from '../lib/notify';
 import { mailLayout, sendMail } from '../lib/mailer';
@@ -128,7 +128,7 @@ export async function licenseRoutes(app: FastifyInstance) {
 
   /** RH/admin veem todas; os demais, as que estão sob sua responsabilidade */
   app.get('/', async (req) => {
-    const q = parse(z.object({ archived: z.coerce.boolean().default(false) }), req.query);
+    const q = parse(z.object({ archived: queryBool().default(false) }), req.query);
     const mine = !isHR(req.auth);
     const list = await prisma.license.findMany({
       where: { archived: q.archived, ...(mine ? { OR: [{ responsibleId: req.auth.id }, { backupId: req.auth.id }] } : {}) },

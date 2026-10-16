@@ -22,7 +22,7 @@ import bcrypt from 'bcryptjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { KUDOS_VALUES, PROFILE_KEYS, PULSE_DEFAULT_QUESTION, normalizeProfile, type ProfileKey, type ProfileScores } from '@dumax/shared';
+import { KUDOS_VALUES, PROFILE_KEYS, PULSE_DEFAULT_QUESTION, normalizeProfile, type ProfileKey, type ProfileScores, inferLevel, DEFAULT_SCORECARD_CRITERIA } from '@dumax/shared';
 import { DISC_QUESTIONS, scoreDisc } from '../src/modules/assessments/disc';
 import { computeDay, syncPonto } from '../src/modules/ponto/service';
 import { addDays, brDateKey, brDateTime, dateOnly, todayDateOnly, weekStart } from '../src/lib/dates';
@@ -127,43 +127,49 @@ const PEOPLE: P[] = [
   { key: 'ceo', name: 'Ricardo Almeida', email: 'admin@dumax.com.br', role: 'ADMIN', title: 'CEO', dept: 'Diretoria', arch: 'solid', profile: { EXECUTOR: 0.55, COMUNICADOR: 0.3 } },
   { key: 'helena', name: 'Helena Prado', role: 'MANAGER', title: 'Diretora Administrativa', dept: 'Diretoria', mgr: 'ceo', arch: 'star', profile: { PLANEJADOR: 0.4, ANALISTA: 0.4 } },
   { key: 'rh', name: 'Fernanda Costa', email: 'rh@dumax.com.br', role: 'HR', title: 'Head de Pessoas', dept: 'Pessoas & Cultura', mgr: 'ceo', arch: 'solid', profile: { COMUNICADOR: 0.5, PLANEJADOR: 0.35 } },
-  { key: 'bruna', name: 'Bruna Lima', role: 'HR', title: 'Analista de RH', dept: 'Pessoas & Cultura', mgr: 'rh', arch: 'star', profile: { PLANEJADOR: 0.5, COMUNICADOR: 0.3 } },
+  { key: 'bruna', name: 'Bruna Lima', role: 'HR', title: 'Analista de RH Pleno', dept: 'Pessoas & Cultura', mgr: 'rh', arch: 'star', profile: { PLANEJADOR: 0.5, COMUNICADOR: 0.3 } },
   { key: 'natalia', name: 'Natália Ribas', role: 'EMPLOYEE', title: 'Assistente de DP', dept: 'Pessoas & Cultura', mgr: 'rh', arch: 'avg', profile: { ANALISTA: 0.5, PLANEJADOR: 0.35 } },
+  { key: 'yasmin', name: 'Yasmin Duarte', role: 'EMPLOYEE', title: 'Estagiária de RH', dept: 'Pessoas & Cultura', mgr: 'bruna', arch: 'avg', profile: { COMUNICADOR: 0.45, PLANEJADOR: 0.3 } },
   { key: 'monica', name: 'Mônica Freitas', role: 'EMPLOYEE', title: 'Recepcionista', dept: 'Pessoas & Cultura', mgr: 'rh', arch: 'solid', profile: null },
   { key: 'gestor', name: 'Marcos Oliveira', email: 'gestor@dumax.com.br', role: 'MANAGER', title: 'Gerente Comercial', dept: 'Comercial', mgr: 'ceo', arch: 'solid', profile: { EXECUTOR: 0.45, COMUNICADOR: 0.4 } },
-  { key: 'luiza', name: 'Luiza Martins', email: 'luiza@dumax.com.br', role: 'EMPLOYEE', title: 'Executiva de Contas', dept: 'Comercial', mgr: 'gestor', arch: 'star', profile: { COMUNICADOR: 0.55, EXECUTOR: 0.3 } },
-  { key: 'pedro', name: 'Pedro Santos', role: 'EMPLOYEE', title: 'SDR', dept: 'Comercial', mgr: 'gestor', arch: 'struggling', profile: { PLANEJADOR: 0.45, ANALISTA: 0.3 } },
-  { key: 'camila', name: 'Camila Rocha', role: 'EMPLOYEE', title: 'SDR', dept: 'Comercial', mgr: 'gestor', arch: 'overloaded', profile: { COMUNICADOR: 0.5, EXECUTOR: 0.3 } },
-  { key: 'rodrigo', name: 'Rodrigo Farias', role: 'EMPLOYEE', title: 'Executivo de Contas', dept: 'Comercial', mgr: 'gestor', arch: 'avg', profile: { EXECUTOR: 0.5, ANALISTA: 0.25 } },
-  { key: 'aline', name: 'Aline Kowalski', role: 'EMPLOYEE', title: 'SDR', dept: 'Comercial', mgr: 'gestor', arch: 'solid', profile: { COMUNICADOR: 0.45, PLANEJADOR: 0.3 } },
+  { key: 'coordvendas', name: 'Fábio Mattos', role: 'MANAGER', title: 'Coordenador de Vendas Internas', dept: 'Comercial', mgr: 'gestor', arch: 'solid', profile: { EXECUTOR: 0.45, PLANEJADOR: 0.3 } },
+  { key: 'luiza', name: 'Luiza Martins', email: 'luiza@dumax.com.br', role: 'EMPLOYEE', title: 'Executiva de Contas Sênior', dept: 'Comercial', mgr: 'gestor', arch: 'star', profile: { COMUNICADOR: 0.55, EXECUTOR: 0.3 } },
+  { key: 'pedro', name: 'Pedro Santos', role: 'EMPLOYEE', title: 'SDR Pleno', dept: 'Comercial', mgr: 'coordvendas', arch: 'struggling', profile: { PLANEJADOR: 0.45, ANALISTA: 0.3 } },
+  { key: 'camila', name: 'Camila Rocha', role: 'EMPLOYEE', title: 'SDR Pleno', dept: 'Comercial', mgr: 'coordvendas', arch: 'overloaded', profile: { COMUNICADOR: 0.5, EXECUTOR: 0.3 } },
+  { key: 'rodrigo', name: 'Rodrigo Farias', role: 'EMPLOYEE', title: 'Executivo de Contas Pleno', dept: 'Comercial', mgr: 'gestor', arch: 'avg', profile: { EXECUTOR: 0.5, ANALISTA: 0.25 } },
+  { key: 'aline', name: 'Aline Kowalski', role: 'EMPLOYEE', title: 'SDR Júnior', dept: 'Comercial', mgr: 'coordvendas', arch: 'solid', profile: { COMUNICADOR: 0.45, PLANEJADOR: 0.3 } },
   { key: 'eduardo', name: 'Eduardo Schmitt', role: 'EMPLOYEE', title: 'Key Account', dept: 'Comercial', mgr: 'gestor', arch: 'star', profile: { EXECUTOR: 0.4, COMUNICADOR: 0.4 } },
-  { key: 'gabriel', name: 'Gabriel Rossi', role: 'EMPLOYEE', title: 'SDR Jr', dept: 'Comercial', mgr: 'gestor', arch: 'avg', profile: null },
+  { key: 'gabriel', name: 'Gabriel Rossi', role: 'EMPLOYEE', title: 'SDR Jr', dept: 'Comercial', mgr: 'coordvendas', arch: 'avg', profile: null },
+  { key: 'caio', name: 'Caio Henrique', role: 'EMPLOYEE', title: 'Estagiário Comercial', dept: 'Comercial', mgr: 'coordvendas', arch: 'avg', profile: { COMUNICADOR: 0.5, EXECUTOR: 0.25 } },
   { key: 'tatiane', name: 'Tatiane Moraes', role: 'MANAGER', title: 'Coordenadora de Marketing', dept: 'Marketing', mgr: 'ceo', arch: 'solid', profile: { COMUNICADOR: 0.5, EXECUTOR: 0.25 } },
-  { key: 'igor', name: 'Igor Batista', role: 'EMPLOYEE', title: 'Designer', dept: 'Marketing', mgr: 'tatiane', arch: 'star', profile: { ANALISTA: 0.35, COMUNICADOR: 0.35 } },
-  { key: 'larissa', name: 'Larissa Becker', role: 'EMPLOYEE', title: 'Analista de Conteúdo', dept: 'Marketing', mgr: 'tatiane', arch: 'avg', profile: { COMUNICADOR: 0.45, PLANEJADOR: 0.35 } },
-  { key: 'vitor', name: 'Vitor Hugo Lemos', role: 'EMPLOYEE', title: 'Analista de Mídia Paga', dept: 'Marketing', mgr: 'tatiane', arch: 'struggling', profile: { ANALISTA: 0.5, EXECUTOR: 0.25 } },
-  { key: 'kelly', name: 'Kelly Ortiz', role: 'EMPLOYEE', title: 'Social Media', dept: 'Marketing', mgr: 'tatiane', arch: 'solid', profile: { COMUNICADOR: 0.6, PLANEJADOR: 0.2 } },
+  { key: 'igor', name: 'Igor Batista', role: 'EMPLOYEE', title: 'Designer Sênior', dept: 'Marketing', mgr: 'tatiane', arch: 'star', profile: { ANALISTA: 0.35, COMUNICADOR: 0.35 } },
+  { key: 'larissa', name: 'Larissa Becker', role: 'EMPLOYEE', title: 'Analista de Conteúdo Júnior', dept: 'Marketing', mgr: 'tatiane', arch: 'avg', profile: { COMUNICADOR: 0.45, PLANEJADOR: 0.35 } },
+  { key: 'vitor', name: 'Vitor Hugo Lemos', role: 'EMPLOYEE', title: 'Analista de Mídia Paga Pleno', dept: 'Marketing', mgr: 'tatiane', arch: 'struggling', profile: { ANALISTA: 0.5, EXECUTOR: 0.25 } },
+  { key: 'kelly', name: 'Kelly Ortiz', role: 'EMPLOYEE', title: 'Social Media Pleno', dept: 'Marketing', mgr: 'tatiane', arch: 'solid', profile: { COMUNICADOR: 0.6, PLANEJADOR: 0.2 } },
+  { key: 'livia', name: 'Lívia Araújo', role: 'EMPLOYEE', title: 'Estagiária de Marketing', dept: 'Marketing', mgr: 'tatiane', arch: 'solid', profile: { COMUNICADOR: 0.45, ANALISTA: 0.3 } },
   { key: 'juliana', name: 'Juliana Ferreira', role: 'MANAGER', title: 'Gerente de Operações', dept: 'Operações', mgr: 'helena', start: '07:30', arch: 'overloaded', profile: { EXECUTOR: 0.45, PLANEJADOR: 0.35 } },
-  { key: 'rafael', name: 'Rafael Souza', role: 'EMPLOYEE', title: 'Analista de Operações', dept: 'Operações', mgr: 'juliana', start: '07:30', arch: 'solid', profile: { ANALISTA: 0.45, PLANEJADOR: 0.35 } },
-  { key: 'thiago', name: 'Thiago Pereira', role: 'EMPLOYEE', title: 'Assistente de Expedição', dept: 'Operações', mgr: 'juliana', start: '07:30', arch: 'struggling', profile: { PLANEJADOR: 0.55, EXECUTOR: 0.2 } },
-  { key: 'jessica', name: 'Jéssica Zanella', role: 'EMPLOYEE', title: 'Analista de Atendimento', dept: 'Operações', mgr: 'juliana', start: '08:00', arch: 'star', profile: { PLANEJADOR: 0.45, COMUNICADOR: 0.35 } },
-  { key: 'leandro', name: 'Leandro Wolff', role: 'EMPLOYEE', title: 'Conferente', dept: 'Operações', mgr: 'juliana', start: '07:30', arch: 'avg', profile: { ANALISTA: 0.4, PLANEJADOR: 0.4 } },
-  { key: 'mateus', name: 'Mateus Dalla Costa', role: 'EMPLOYEE', title: 'Auxiliar de Expedição', dept: 'Operações', mgr: 'juliana', start: '07:30', arch: 'avg', profile: { EXECUTOR: 0.4, PLANEJADOR: 0.35 } },
+  { key: 'coordlog', name: 'Sérgio Kuhn', role: 'MANAGER', title: 'Supervisor de Logística', dept: 'Operações', mgr: 'juliana', start: '07:30', arch: 'solid', profile: { PLANEJADOR: 0.45, EXECUTOR: 0.35 } },
+  { key: 'rafael', name: 'Rafael Souza', role: 'EMPLOYEE', title: 'Analista de Operações Sênior', dept: 'Operações', mgr: 'juliana', start: '07:30', arch: 'solid', profile: { ANALISTA: 0.45, PLANEJADOR: 0.35 } },
+  { key: 'thiago', name: 'Thiago Pereira', role: 'EMPLOYEE', title: 'Assistente de Expedição', dept: 'Operações', mgr: 'coordlog', start: '07:30', arch: 'struggling', profile: { PLANEJADOR: 0.55, EXECUTOR: 0.2 } },
+  { key: 'jessica', name: 'Jéssica Zanella', role: 'EMPLOYEE', title: 'Analista de Atendimento Pleno', dept: 'Operações', mgr: 'juliana', start: '08:00', arch: 'star', profile: { PLANEJADOR: 0.45, COMUNICADOR: 0.35 } },
+  { key: 'leandro', name: 'Leandro Wolff', role: 'EMPLOYEE', title: 'Conferente', dept: 'Operações', mgr: 'coordlog', start: '07:30', arch: 'avg', profile: { ANALISTA: 0.4, PLANEJADOR: 0.4 } },
+  { key: 'mateus', name: 'Mateus Dalla Costa', role: 'EMPLOYEE', title: 'Auxiliar de Expedição', dept: 'Operações', mgr: 'coordlog', start: '07:30', arch: 'avg', profile: { EXECUTOR: 0.4, PLANEJADOR: 0.35 } },
   { key: 'priscila', name: 'Priscila Andrade', role: 'EMPLOYEE', title: 'Atendente', dept: 'Operações', mgr: 'juliana', start: '08:00', arch: 'solid', profile: { COMUNICADOR: 0.4, PLANEJADOR: 0.45 } },
   { key: 'cristiane', name: 'Cristiane Lopes', role: 'EMPLOYEE', title: 'Atendente', dept: 'Operações', mgr: 'juliana', start: '08:00', arch: 'overloaded', profile: { PLANEJADOR: 0.5, COMUNICADOR: 0.3 } },
-  { key: 'anderson', name: 'Anderson Vieira', role: 'EMPLOYEE', title: 'Motorista', dept: 'Operações', mgr: 'juliana', start: '07:30', arch: 'avg', profile: null },
+  { key: 'anderson', name: 'Anderson Vieira', role: 'EMPLOYEE', title: 'Motorista', dept: 'Operações', mgr: 'coordlog', start: '07:30', arch: 'avg', profile: null },
   { key: 'tech', name: 'Gustavo Ribeiro', role: 'MANAGER', title: 'Tech Lead', dept: 'Tecnologia', mgr: 'ceo', arch: 'solid', profile: { ANALISTA: 0.45, EXECUTOR: 0.35 } },
-  { key: 'ana', name: 'Ana Carvalho', role: 'EMPLOYEE', title: 'Dev Full Stack', dept: 'Tecnologia', mgr: 'tech', arch: 'star', profile: { ANALISTA: 0.5, EXECUTOR: 0.3 } },
-  { key: 'lucas', name: 'Lucas Mendes', role: 'EMPLOYEE', title: 'Dev Front-end', dept: 'Tecnologia', mgr: 'tech', arch: 'avg', profile: { ANALISTA: 0.4, COMUNICADOR: 0.3 } },
-  { key: 'renan', name: 'Renan Toledo', role: 'EMPLOYEE', title: 'Dev Back-end', dept: 'Tecnologia', mgr: 'tech', arch: 'solid', profile: { ANALISTA: 0.6, PLANEJADOR: 0.25 } },
-  { key: 'bianca', name: 'Bianca Sartori', role: 'EMPLOYEE', title: 'Analista de Suporte', dept: 'Tecnologia', mgr: 'tech', arch: 'overloaded', profile: { PLANEJADOR: 0.5, ANALISTA: 0.3 } },
-  { key: 'felipe', name: 'Felipe Nogueira', role: 'EMPLOYEE', title: 'Analista de Dados', dept: 'Tecnologia', mgr: 'tech', arch: 'struggling', profile: { ANALISTA: 0.55, PLANEJADOR: 0.3 } },
-  { key: 'paula', name: 'Paula Menezes', role: 'EMPLOYEE', title: 'QA', dept: 'Tecnologia', mgr: 'tech', arch: 'solid', profile: null },
+  { key: 'ana', name: 'Ana Carvalho', role: 'EMPLOYEE', title: 'Dev Full Stack Sênior', dept: 'Tecnologia', mgr: 'tech', arch: 'star', profile: { ANALISTA: 0.5, EXECUTOR: 0.3 } },
+  { key: 'lucas', name: 'Lucas Mendes', role: 'EMPLOYEE', title: 'Dev Front-end Júnior', dept: 'Tecnologia', mgr: 'tech', arch: 'avg', profile: { ANALISTA: 0.4, COMUNICADOR: 0.3 } },
+  { key: 'renan', name: 'Renan Toledo', role: 'EMPLOYEE', title: 'Dev Back-end Pleno', dept: 'Tecnologia', mgr: 'tech', arch: 'solid', profile: { ANALISTA: 0.6, PLANEJADOR: 0.25 } },
+  { key: 'bianca', name: 'Bianca Sartori', role: 'EMPLOYEE', title: 'Analista de Suporte Pleno', dept: 'Tecnologia', mgr: 'tech', arch: 'overloaded', profile: { PLANEJADOR: 0.5, ANALISTA: 0.3 } },
+  { key: 'felipe', name: 'Felipe Nogueira', role: 'EMPLOYEE', title: 'Analista de Dados Júnior', dept: 'Tecnologia', mgr: 'tech', arch: 'struggling', profile: { ANALISTA: 0.55, PLANEJADOR: 0.3 } },
+  { key: 'paula', name: 'Paula Menezes', role: 'EMPLOYEE', title: 'QA Pleno', dept: 'Tecnologia', mgr: 'tech', arch: 'solid', profile: null },
+  { key: 'brunol', name: 'Bruno Lacerda', role: 'EMPLOYEE', title: 'Estagiário de Desenvolvimento', dept: 'Tecnologia', mgr: 'tech', arch: 'avg', profile: { ANALISTA: 0.5, COMUNICADOR: 0.25 } },
   { key: 'fin', name: 'Patrícia Gomes', role: 'MANAGER', title: 'Controller', dept: 'Financeiro', mgr: 'helena', arch: 'star', profile: { ANALISTA: 0.55, EXECUTOR: 0.25 } },
-  { key: 'diego', name: 'Diego Barbosa', role: 'EMPLOYEE', title: 'Analista Financeiro', dept: 'Financeiro', mgr: 'fin', arch: 'solid', profile: { ANALISTA: 0.5, PLANEJADOR: 0.35 } },
-  { key: 'simone', name: 'Simone Klein', role: 'EMPLOYEE', title: 'Analista de Contas a Pagar', dept: 'Financeiro', mgr: 'fin', arch: 'avg', profile: { PLANEJADOR: 0.5, ANALISTA: 0.35 } },
+  { key: 'diego', name: 'Diego Barbosa', role: 'EMPLOYEE', title: 'Analista Financeiro Sênior', dept: 'Financeiro', mgr: 'fin', arch: 'solid', profile: { ANALISTA: 0.5, PLANEJADOR: 0.35 } },
+  { key: 'simone', name: 'Simone Klein', role: 'EMPLOYEE', title: 'Analista de Contas a Pagar Pleno', dept: 'Financeiro', mgr: 'fin', arch: 'avg', profile: { PLANEJADOR: 0.5, ANALISTA: 0.35 } },
   { key: 'otavio', name: 'Otávio Ramos', role: 'EMPLOYEE', title: 'Assistente Financeiro', dept: 'Financeiro', mgr: 'fin', arch: 'struggling', profile: { COMUNICADOR: 0.4, PLANEJADOR: 0.35 } },
-  { key: 'rosana', name: 'Rosana Pires', role: 'EMPLOYEE', title: 'Analista de Faturamento', dept: 'Financeiro', mgr: 'fin', arch: 'solid', profile: { ANALISTA: 0.45, PLANEJADOR: 0.4 } },
+  { key: 'rosana', name: 'Rosana Pires', role: 'EMPLOYEE', title: 'Analista de Faturamento Pleno', dept: 'Financeiro', mgr: 'fin', arch: 'solid', profile: { ANALISTA: 0.45, PLANEJADOR: 0.4 } },
 ];
 
 const DEPTS: [string, string, string][] = [
@@ -236,6 +242,7 @@ async function main() {
         passwordHash,
         role: p.role,
         jobTitle: p.title,
+        level: inferLevel(p.title),
         departmentId: dept[p.dept],
         managerId: p.mgr ? u[p.mgr] : null,
         phone: `(45) 9${String(9100 + i * 23).slice(0, 4)}-${String(1000 + i * 97).slice(0, 4)}`,
@@ -291,25 +298,6 @@ async function main() {
     }
     for (const k of touched) await computeDay(u[p.key], k);
   }
-  // validação: dias antigos aprovados, recentes confirmados ou pendentes, alguns contestados
-  const allDays = await prisma.timeDay.findMany({ where: { status: { not: 'OFF' } } });
-  const tenDaysAgo = addDays(TODAY, -10);
-  for (const d of allDays) {
-    if (d.date >= TODAY) continue;
-    if (d.date < tenDaysAgo && d.status === 'OK' && chance(0.75)) {
-      await prisma.timeDay.update({ where: { id: d.id }, data: { validation: 'APPROVED', confirmedAt: d.date, reviewedAt: addDays(d.date, 2), reviewerId: u.rh } });
-    } else if (d.status === 'OK' && chance(0.4)) {
-      await prisma.timeDay.update({ where: { id: d.id }, data: { validation: 'CONFIRMED', confirmedAt: addDays(d.date, 1) } });
-    }
-  }
-  const contest = async (key: string, note: string) => {
-    const day = await prisma.timeDay.findFirst({ where: { userId: u[key], status: { in: ['LATE', 'INCOMPLETE'] }, validation: 'PENDING', date: { lt: TODAY } }, orderBy: { date: 'desc' } });
-    if (day) await prisma.timeDay.update({ where: { id: day.id }, data: { validation: 'CONTESTED', employeeNote: note } });
-  };
-  await contest('luiza', 'O relógio de ponto estava travado, cheguei às 7h55. O Pedro pode confirmar.');
-  await contest('pedro', 'Fui direto para a visita no cliente Agro Oeste, por isso a entrada tarde.');
-  await contest('thiago', 'Esqueci de bater a saída, saí às 17h35.');
-  await contest('cristiane', 'Fiquei até mais tarde fechando os chamados, a saída está errada.');
 
   // ═════════ Demandas (centenas) ═════════
   console.log('  demandas e apontamentos…');
@@ -924,7 +912,6 @@ async function main() {
     { userId: u.luiza, type: 'kudos', title: 'Marcos Oliveira te elogiou', body: 'Dono do resultado: fechou o maior contrato do trimestre.', link: '/mural', createdAt: at(NOW, -1) },
     { userId: u.luiza, type: 'document.sign', title: 'Documento para assinar', body: 'Recibo de bonificação — 3º trimestre', link: '/documentos', createdAt: at(NOW, -2) },
     { userId: u.luiza, type: 'task.assigned', title: 'Nova demanda: Preparar apresentação para o Grupo Vértice', body: 'De Marcos Oliveira', link: '/demandas', createdAt: at(NOW, -3) },
-    { userId: u.gestor, type: 'ponto.contested', title: 'Pedro Santos contestou um dia de ponto', body: 'Fui direto para a visita no cliente…', link: '/admin/ponto?validation=CONTESTED', createdAt: hoursFromNow(-20) },
     { userId: u.gestor, type: 'performance.alert', title: 'Pedro Santos: 4 demandas atrasadas', body: 'E 58% das horas trabalhadas sem atividade registrada nos últimos 30 dias.', link: `/admin/desempenho/${u.pedro}`, createdAt: hoursFromNow(-6) },
     { userId: u.gestor, type: 'document.sign', title: 'Documento para assinar', body: 'Contrato comercial — Construtora Horizonte', link: '/documentos', createdAt: at(NOW, -3), readAt: at(NOW, -3) },
     { userId: u.rh, type: 'assessment.completed', title: 'Novo teste de perfil concluído', body: 'Executivo(a) de Vendas B2B', link: '/admin/recrutamento', createdAt: hoursFromNow(-3) },
@@ -934,6 +921,123 @@ async function main() {
     { userId: u.helena, type: 'license.expiring', title: 'Alvará de funcionamento vence em 18 dias', body: 'Prefeitura de Cascavel', link: '/licencas', createdAt: at(NOW, -1) },
   ];
   await prisma.notification.createMany({ data: notes });
+
+  // ═════════ Recrutamento: perguntas, avaliações e indicações ═════════
+  console.log('  1:1, PDI, avaliações de entrevista e indicações…');
+  await prisma.job.updateMany({ where: { status: 'OPEN' }, data: { scorecardCriteria: DEFAULT_SCORECARD_CRITERIA } });
+  const salesJob = await prisma.job.findFirst({ where: { title: { startsWith: 'Executivo(a) de Vendas' } } });
+  if (salesJob) {
+    await prisma.job.update({
+      where: { id: salesJob.id },
+      data: {
+        screeningQuestions: [
+          { id: 'cnh', text: 'Possui CNH categoria B?', type: 'YES_NO', expected: 'YES', mode: 'ELIMINATE' },
+          { id: 'carro', text: 'Possui veículo próprio para visitar clientes?', type: 'YES_NO', expected: 'YES', mode: 'ELIMINATE' },
+          { id: 'exp', text: 'Quantos anos de experiência com vendas B2B?', type: 'NUMBER', min: 2, unit: 'anos', mode: 'ELIMINATE' },
+          { id: 'salario', text: 'Qual sua pretensão salarial (fixo)?', type: 'NUMBER', max: 7500, unit: 'R$', mode: 'FLAG' },
+        ],
+        scorecardCriteria: ['Comunicação', 'Experiência em vendas B2B', 'Negociação', 'Organização da carteira', 'Alinhamento com a cultura'],
+      },
+    });
+  }
+  const interviewed = await prisma.application.findMany({ where: { stage: { in: ['INTERVIEW', 'OFFER', 'HIRED'] } }, include: { job: { select: { scorecardCriteria: true } } } });
+  for (const a of interviewed) {
+    const criteria = (a.job.scorecardCriteria as string[] | null) ?? DEFAULT_SCORECARD_CRITERIA;
+    const strong = a.stage !== 'INTERVIEW' || chance(0.5);
+    for (const author of [u.rh, ...(chance(0.6) ? [u.bruna] : [])]) {
+      const ratings = criteria.map((name) => ({ name, rating: Math.max(1, Math.min(4, (strong ? 3 : 2) + int(-1, 1))) }));
+      const avg = ratings.reduce((t, r) => t + r.rating, 0) / ratings.length;
+      await prisma.interviewScorecard.create({
+        data: {
+          applicationId: a.id,
+          authorId: author,
+          ratings,
+          recommendation: avg >= 3.4 ? 'STRONG_YES' : avg >= 2.6 ? 'YES' : avg >= 1.8 ? 'NO' : 'STRONG_NO',
+          summary: pick(['Boa conversa, respondeu com exemplos concretos.', 'Mostrou interesse real pela vaga e pela empresa.', 'Faltou profundidade nas perguntas técnicas.', 'Comunicação clara, mas pouca experiência na função.']),
+          createdAt: at(a.createdAt, 3),
+        },
+      });
+    }
+  }
+  const referrable = await prisma.application.findMany({ where: { job: { status: 'OPEN' } }, orderBy: { createdAt: 'desc' }, take: 6 });
+  const referrers = [u.luiza, u.luiza, u.rodrigo, u.ana, u.jessica, u.eduardo];
+  for (const [i, a] of referrable.entries()) {
+    await prisma.application.update({ where: { id: a.id }, data: { referredById: referrers[i], source: 'indicacao' } });
+  }
+
+  // ═════════ 1:1 ═════════
+  const ooPairs: [string, string][] = PEOPLE.filter((p) => p.mgr === 'gestor').map((p) => ['gestor', p.key]);
+  for (const [i, [mk, rk]] of ooPairs.entries()) {
+    const managerId = u[mk];
+    const reportId = u[rk];
+    const past = await prisma.oneOnOne.create({
+      data: {
+        managerId,
+        reportId,
+        scheduledAt: at(NOW, -14 + i),
+        status: 'DONE',
+        notes: 'Conversamos sobre a carteira do mês e as prioridades da próxima quinzena. Clima bom, sem bloqueios.',
+        createdAt: at(NOW, -16 + i),
+      },
+    });
+    await prisma.oneOnOneItem.createMany({
+      data: [
+        { oneOnOneId: past.id, authorId: reportId, kind: 'TOPIC', text: 'Clientes que estão demorando para responder a proposta', done: true },
+        { oneOnOneId: past.id, authorId: managerId, kind: 'TOPIC', text: 'Feedback da última visita', done: true },
+        { oneOnOneId: past.id, authorId: managerId, kind: 'ACTION', text: 'Atualizar o pipeline no CRM até sexta', ownerId: reportId, dueAt: at(NOW, -2 - i), done: i % 2 === 0 },
+        { oneOnOneId: past.id, authorId: reportId, kind: 'ACTION', text: 'Liberar desconto especial para a Cooperativa Coopavel', ownerId: managerId, dueAt: at(NOW, 3), done: false },
+      ],
+    });
+    const next = new Date(TODAY);
+    next.setDate(next.getDate() + 2 + i);
+    next.setHours(10 + (i % 4), 0, 0, 0);
+    const upcoming = await prisma.oneOnOne.create({ data: { managerId, reportId, scheduledAt: next } });
+    await prisma.oneOnOneItem.createMany({
+      data: [
+        { oneOnOneId: upcoming.id, authorId: reportId, kind: 'TOPIC', text: pick(['Quero conversar sobre a meta do próximo trimestre', 'Ideia para reativar clientes parados', 'Treinamento de negociação']) },
+        { oneOnOneId: upcoming.id, authorId: managerId, kind: 'TOPIC', text: 'Como foi a semana e o que está travando' },
+      ],
+    });
+  }
+
+  // ═════════ PDI ═════════
+  const PDIS = [
+    { key: 'luiza', by: 'gestor', title: 'Assumir a liderança de Contas Estratégicas até junho', focus: 'Liderança', due: 240, actions: [
+      { text: 'Curso de liderança para novos gestores (online, 20h)', kind: 'CURSO', due: 40, done: true },
+      { text: 'Conduzir a reunião semanal do time de contas', kind: 'PRATICA', due: 60, done: true },
+      { text: 'Mentoria quinzenal com o Marcos', kind: 'MENTORIA', due: 120, done: false },
+      { text: 'Ler “O gerente minuto”', kind: 'LEITURA', due: 30, done: false },
+    ] },
+    { key: 'rodrigo', by: 'gestor', title: 'Melhorar a taxa de fechamento em negociações grandes', focus: 'Vendas', due: 120, actions: [
+      { text: 'Acompanhar o Eduardo em 3 negociações acima de R$ 50 mil', kind: 'PRATICA', due: 45, done: false },
+      { text: 'Treinamento de negociação do Sebrae', kind: 'CURSO', due: 25, done: false },
+    ] },
+    { key: 'ana', by: 'tech', title: 'Ganhar autonomia em arquitetura de sistemas', focus: 'Técnico', due: 180, actions: [
+      { text: 'Desenhar a arquitetura da integração com o ERP', kind: 'PRATICA', due: 30, done: true },
+      { text: 'Apresentar a proposta para o time', kind: 'PRATICA', due: 45, done: false },
+    ] },
+  ] as const;
+  for (const p of PDIS) {
+    await prisma.developmentPlan.create({
+      data: {
+        userId: u[p.key],
+        createdById: u[p.by],
+        title: p.title,
+        focus: p.focus,
+        dueDate: addDays(TODAY, p.due),
+        createdAt: at(NOW, -30),
+        actions: { create: p.actions.map((a) => ({ text: a.text, kind: a.kind, dueDate: addDays(TODAY, a.due - 50), done: a.done, doneAt: a.done ? at(NOW, -int(2, 20)) : null })) },
+      },
+    });
+  }
+
+  // ═════════ Comunicado de leitura obrigatória ═════════
+  const nr = await prisma.announcement.findFirst({ where: { title: 'Treinamento de NR-11' } });
+  if (nr) {
+    await prisma.announcement.update({ where: { id: nr.id }, data: { requiresAck: true } });
+    const readers = Object.entries(u).filter(([k]) => !['luiza', 'gestor', 'admin', 'ceo', 'rh'].includes(k) && chance(0.6));
+    await prisma.announcementRead.createMany({ data: [...readers.map(([, id]) => id), u.juliana].map((userId) => ({ announcementId: nr.id, userId, readAt: at(NOW, -between(0.1, 1.8)) })), skipDuplicates: true });
+  }
 
   const counts = {
     pessoas: PEOPLE.length,

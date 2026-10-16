@@ -97,7 +97,7 @@ function NewChatPanel({ onClose, onOpen, online }: { onClose: () => void; onOpen
           })}
         </div>
       )}
-      <div className="scroll-thin flex-1 overflow-y-auto">
+      <div className="scroll-thin flex-1 overflow-y-auto overflow-x-hidden">
         {people.map((u) => (
           <button key={u.id} onClick={() => toggle(u.id)} className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-ink-50">
             <Checkbox checked={selected.includes(u.id)} onChange={() => toggle(u.id)} />
@@ -330,7 +330,7 @@ function InfoPanel({ conv, onClose, online }: { conv: ConversationSummary; onClo
         </Button>
         <p className="font-semibold">{conv.type === 'GROUP' ? 'Dados do grupo' : 'Dados do contato'}</p>
       </div>
-      <div className="scroll-thin flex-1 overflow-y-auto">
+      <div className="scroll-thin flex-1 overflow-y-auto overflow-x-hidden">
         <div className="flex flex-col items-center border-b border-ink-100 px-4 py-6 text-center">
           {conv.type === 'GROUP' ? (
             <span className="flex h-20 w-20 items-center justify-center rounded-full bg-ink-900 text-white">
@@ -932,7 +932,7 @@ export default function Chat() {
           )}
         </div>
 
-        <div className="scroll-thin flex-1 overflow-y-auto">
+        <div className="scroll-thin flex-1 overflow-y-auto overflow-x-hidden">
           {!archivedView && archivedCount > 0 && (
             <button onClick={() => setArchivedView(true)} className="flex w-full items-center gap-4 px-4 py-2.5 text-left hover:bg-ink-50">
               <span className="flex w-10 justify-center text-ink-500">

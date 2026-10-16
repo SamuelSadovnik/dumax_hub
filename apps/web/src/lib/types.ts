@@ -10,10 +10,13 @@ import type {
   TaskPriority,
   TaskStatus,
   UserLite,
-  ValidationStatus,
   WorkMode,
   AssessmentResult,
   ProfileScores,
+  ScreeningAnswer,
+  ScreeningQuestion,
+  Recommendation,
+  DevActionKind,
 } from '@dumax/shared';
 
 export type { UserLite, Me } from '@dumax/shared';
@@ -34,6 +37,7 @@ export interface UserDetail extends UserLite {
   hiredAt: string | null;
   birthday: string | null;
   lastSeenAt: string | null;
+  level: string | null;
   pontoCode: string | null;
   managerId: string | null;
   manager: UserLite | null;
@@ -93,6 +97,8 @@ export interface Task {
   createdAt: string;
   checklist: { id: string; title: string; done: boolean; position: number }[];
   _count: { comments: number };
+  /** Pedido de prorrogação aguardando resposta (no máximo um) */
+  extensionRequests?: { id: string; requestedDueAt: string; reason: string; requesterId: string }[];
 }
 
 export interface TaskDetail extends Task {
@@ -178,6 +184,8 @@ export interface Job {
   bySource?: Record<string, number>;
   lastWeek?: number;
   idealProfile: ProfileScores | null;
+  screeningQuestions: ScreeningQuestion[] | null;
+  scorecardCriteria?: string[] | null;
 }
 
 export interface Candidate {
@@ -200,6 +208,7 @@ export interface PipelineCard {
   profile: ProfileKey | null;
   hasResume: boolean;
   fit: number | null;
+  screeningAnswers: ScreeningAnswer[] | null;
 }
 
 export interface FitAnalysis {
@@ -221,8 +230,11 @@ export interface ApplicationDetail {
   rejectionReason: string | null;
   source: string | null;
   createdAt: string;
+  screeningAnswers: ScreeningAnswer[] | null;
   candidate: Candidate & { applications: { id: string; stage: Stage; createdAt: string; job: { title: string } }[] };
-  job: { id: string; title: string; slug: string; idealProfile: ProfileScores | null; department: { name: string } | null };
+  job: { id: string; title: string; slug: string; idealProfile: ProfileScores | null; scorecardCriteria: string[] | null; department: { name: string } | null };
+  scorecards: Scorecard[];
+  referredBy: UserLite | null;
   analysis: FitAnalysis | null;
   events: {
     id: string;
@@ -239,7 +251,7 @@ export interface ApplicationDetail {
     token: string;
     url: string;
     status: 'PENDING' | 'COMPLETED' | 'EXPIRED';
-    result: AssessmentResult | null;
+    result: (AssessmentResult & { ai?: AiReading }) | null;
     primaryProfile: ProfileKey | null;
     expiresAt: string;
     startedAt: string | null;
@@ -247,6 +259,18 @@ export interface ApplicationDetail {
     createdAt: string;
   }[];
   whatsappUrl: string;
+}
+
+/** Avaliação estruturada de um entrevistador */
+export interface Scorecard {
+  id: string;
+  authorId: string;
+  author: UserLite;
+  ratings: { name: string; rating: number; note?: string | null }[];
+  recommendation: Recommendation;
+  summary: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Notification {
@@ -264,6 +288,10 @@ export interface Announcement {
   title: string;
   body: string;
   pinned: boolean;
+  requiresAck: boolean;
+  readByMe: boolean;
+  readCount: number;
+  audience: number;
   createdAt: string;
   author: UserLite;
 }
@@ -296,13 +324,6 @@ export interface TimeDay {
   lateMinutes: number;
   balanceMinutes: number;
   status: DayStatus;
-  validation: ValidationStatus;
-  employeeNote: string | null;
-  confirmedAt: string | null;
-  reviewer: UserLite | null;
-  reviewedAt: string | null;
-  reviewNote: string | null;
-  adjustedWorkedMinutes: number | null;
   user?: UserLite;
 }
 
@@ -324,8 +345,6 @@ export interface PontoSummary {
   lateMinutes: number;
   absentCount: number;
   incompleteCount: number;
-  pendingValidation: number;
-  contested: number;
 }
 
 export interface Meeting {
@@ -353,7 +372,7 @@ export interface PeopleMetric {
   lateArrivals30: number;
 }
 
-export type { Role, Stage, TaskStatus, TaskPriority, JobStatus, ProfileKey, DayStatus, ValidationStatus };
+export type { Role, Stage, TaskStatus, TaskPriority, JobStatus, ProfileKey, DayStatus };
 
 // ───────────── v2: desempenho, metas, horas, documentos, licenças ─────────────
 import type { FeedbackType, FlagSeverity, LicenseCategory, LicenseState, PerformanceFlag, ScoreLevel, TimeLogActivity } from '@dumax/shared';
@@ -572,13 +591,87 @@ export interface License {
 }
 
 export interface Inbox {
+  mustRead: { id: string; title: string; createdAt: string }[];
+  oneOnOneActions: { id: string; text: string; dueAt: string | null; withUserId: string }[];
+  reviews: { id: string; title: string; assignee: { id: string; name: string; avatarUrl: string | null } }[];
+  celebrations: { user: { id: string; name: string; avatarUrl: string | null; jobTitle: string | null }; kind: 'BIRTHDAY' | 'ANNIVERSARY'; inDays: number; years?: number }[];
+  extensionRequests: { id: string; requestedDueAt: string; reason: string; requester: { id: string; name: string; avatarUrl: string | null }; task: { id: string; title: string } }[];
   tasks: { open: number; overdue: number; dueToday: number; top: { id: string; title: string; dueAt: string | null; priority: TaskPriority; status: TaskStatus; createdBy: UserLite }[] };
   documentsToSign: { id: string; title: string; dueAt: string | null; from: string; token: string }[];
-  pontoToValidate: number;
   pulse: { id: string; question: string; answered: boolean } | null;
   licenses: { id: string; name: string; expiresAt: string; daysLeft: number; state: LicenseState }[];
   goals: (Pick<Goal, 'id' | 'title' | 'unit' | 'startValue' | 'targetValue' | 'currentValue' | 'dueDate' | 'startDate'> & { progress: number; elapsed: number })[];
   runningTimer: TimeLog | null;
   meetingsToday: { id: string; title: string; startsAt: string; endsAt: string; videoUrl: string | null; location: string | null }[];
-  team: { contestedPonto: number; alerts: { user: { id: string; name: string; avatarUrl: string | null }; message: string; severity: string }[] } | null;
+  team: { alerts: { user: { id: string; name: string; avatarUrl: string | null }; message: string; severity: string }[] } | null;
+}
+
+/** Leitura do teste escrita pela IA (resumo, pontos fortes, atenção e perguntas) */
+export interface AiReading {
+  summary: string;
+  strengths: string[];
+  risks: string[];
+  questions: string[];
+  generatedAt: string;
+}
+
+// ───────────── 1:1 ─────────────
+export interface OneOnOneItem {
+  id: string;
+  oneOnOneId: string;
+  kind: 'TOPIC' | 'ACTION';
+  text: string;
+  done: boolean;
+  dueAt: string | null;
+  createdAt: string;
+  author: UserLite;
+  owner: UserLite | null;
+}
+export interface OneOnOne {
+  id: string;
+  managerId: string;
+  reportId: string;
+  scheduledAt: string;
+  status: 'OPEN' | 'DONE';
+  notes: string | null;
+  items: OneOnOneItem[];
+}
+export interface OneOnOnePairSummary {
+  user: UserLite;
+  next: Pick<OneOnOne, 'id' | 'scheduledAt' | 'status'> | null;
+  last: Pick<OneOnOne, 'id' | 'scheduledAt' | 'status'> | null;
+  openActions: number;
+}
+export interface OneOnOneHome {
+  reports: OneOnOnePairSummary[];
+  manager: OneOnOnePairSummary | null;
+}
+export interface OneOnOnePair {
+  manager: UserLite;
+  report: UserLite;
+  meetings: OneOnOne[];
+  openActions: OneOnOneItem[];
+}
+
+// ───────────── PDI ─────────────
+export interface DevelopmentAction {
+  id: string;
+  planId: string;
+  text: string;
+  kind: DevActionKind;
+  dueDate: string | null;
+  done: boolean;
+  doneAt: string | null;
+  createdAt: string;
+}
+export interface DevelopmentPlan {
+  id: string;
+  userId: string;
+  title: string;
+  focus: string | null;
+  status: 'ACTIVE' | 'DONE' | 'CANCELED';
+  dueDate: string | null;
+  createdAt: string;
+  createdBy: UserLite;
+  actions: DevelopmentAction[];
 }

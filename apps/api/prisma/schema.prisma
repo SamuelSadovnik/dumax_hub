@@ -147,6 +147,8 @@ model User {
   passwordHash String
   role         Role      @default(EMPLOYEE)
   jobTitle     String?
+  /// Nível do cargo: ESTAGIO, JUNIOR, PLENO, SENIOR, ESPECIALISTA, COORDENACAO, GERENCIA, DIRETORIA
+  level        String?
   phone        String?
   avatarUrl    String?
   birthday     DateTime? @db.Date
@@ -206,6 +208,19 @@ model User {
 
   @@index([managerId])
   @@index([departmentId])
+  extensionRequests  TaskExtensionRequest[] @relation("ExtensionRequester")
+  extensionDecisions TaskExtensionRequest[] @relation("ExtensionDecider")
+
+  referrals               Application[]        @relation("ApplicationReferrer")
+  scorecards              InterviewScorecard[]
+  oneOnOnesAsManager      OneOnOne[]           @relation("OneOnOneManager")
+  oneOnOnesAsReport       OneOnOne[]           @relation("OneOnOneReport")
+  oneOnOneItems           OneOnOneItem[]       @relation("OneOnOneItemAuthor")
+  oneOnOneItemsOwned      OneOnOneItem[]       @relation("OneOnOneItemOwner")
+  developmentPlans        DevelopmentPlan[]    @relation("PlanOwner")
+  developmentPlansCreated DevelopmentPlan[]    @relation("PlanCreator")
+  announcementReads       AnnouncementRead[]
+
   @@map("users")
 }
 
@@ -275,8 +290,12 @@ model Job {
   status             JobStatus      @default(DRAFT)
   /// Se true, o candidato recebe o teste de perfil logo após se inscrever
   autoSendAssessment Boolean        @default(true)
+  /// Perguntas de sim/não na candidatura: [{ id, text, expected: YES|NO, mode: ELIMINATE|FLAG }]
+  screeningQuestions Json?
   /// Perfil comportamental ideal para a vaga: { EXECUTOR: 40, COMUNICADOR: 40, PLANEJADOR: 10, ANALISTA: 10 }
   idealProfile       Json?
+  /// Critérios da avaliação de entrevista: ["Comunicação", "Experiência técnica", ...]
+  scorecardCriteria  Json?
   departmentId       String?
   department         Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   createdById        String
@@ -317,13 +336,19 @@ model Application {
   coverLetter     String?
   rating          Int?
   rejectionReason String?
+  /// Respostas às perguntas da vaga: [{ id, text, answer, expected, mode, passed }]
+  screeningAnswers Json?
   source          String?
+  /// Colaborador que indicou o candidato
+  referredById    String?
+  referredBy      User?              @relation("ApplicationReferrer", fields: [referredById], references: [id], onDelete: SetNull)
   stageUpdatedAt  DateTime           @default(now())
   hiredAt         DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   events          ApplicationEvent[]
   assessments     AssessmentInvite[]
+  scorecards      InterviewScorecard[]
 
   @@unique([jobId, candidateId])
   @@index([stage])
@@ -391,6 +416,7 @@ model Task {
   activities     TaskActivity[]
   checklist      TaskChecklistItem[]
   timeLogs       TimeLog[]
+  extensionRequests TaskExtensionRequest[]
 
   @@index([assigneeId, status])
   @@index([createdById])
@@ -551,9 +577,12 @@ model Announcement {
   title     String
   body      String
   pinned    Boolean  @default(false)
+  /// Leitura obrigatória: cada pessoa confirma que leu
+  requiresAck Boolean @default(false)
   authorId  String
   author    User     @relation(fields: [authorId], references: [id])
   createdAt DateTime @default(now())
+  reads     AnnouncementRead[]
 
   @@index([pinned, createdAt])
   @@map("announcements")
@@ -1001,4 +1030,134 @@ model ProfileAssessment {
 
   @@index([userId, completedAt])
   @@map("profile_assessments")
+}
+
+/// Pedido de prorrogação de prazo: quem recebeu a demanda pede, quem enviou aprova ou recusa
+model TaskExtensionRequest {
+  id             String    @id @default(cuid())
+  taskId         String
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requesterId    String
+  requester      User      @relation("ExtensionRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  previousDueAt  DateTime?
+  requestedDueAt DateTime
+  reason         String
+  /// PENDING | APPROVED | REJECTED
+  status         String    @default("PENDING")
+  decidedById    String?
+  decidedBy      User?     @relation("ExtensionDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decisionNote   String?
+  decidedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([taskId, status])
+  @@map("task_extension_requests")
+}
+
+// ───────────── Avaliação de entrevista ─────────────
+
+model InterviewScorecard {
+  id             String      @id @default(cuid())
+  applicationId  String
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  /// [{ name, rating: 1-4, note }]
+  ratings        Json
+  /// STRONG_NO | NO | YES | STRONG_YES
+  recommendation String
+  summary        String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([applicationId, authorId])
+  @@map("interview_scorecards")
+}
+
+// ───────────── 1:1 ─────────────
+
+model OneOnOne {
+  id          String         @id @default(cuid())
+  managerId   String
+  manager     User           @relation("OneOnOneManager", fields: [managerId], references: [id], onDelete: Cascade)
+  reportId    String
+  report      User           @relation("OneOnOneReport", fields: [reportId], references: [id], onDelete: Cascade)
+  scheduledAt DateTime
+  /// OPEN | DONE
+  status      String         @default("OPEN")
+  notes       String?
+  createdAt   DateTime       @default(now())
+  items       OneOnOneItem[]
+
+  @@index([managerId, reportId, scheduledAt])
+  @@map("one_on_ones")
+}
+
+model OneOnOneItem {
+  id         String    @id @default(cuid())
+  oneOnOneId String
+  oneOnOne   OneOnOne  @relation(fields: [oneOnOneId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User      @relation("OneOnOneItemAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  /// TOPIC (pauta) | ACTION (item de ação)
+  kind       String    @default("TOPIC")
+  text       String
+  done       Boolean   @default(false)
+  ownerId    String?
+  owner      User?     @relation("OneOnOneItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  dueAt      DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([oneOnOneId])
+  @@map("one_on_one_items")
+}
+
+// ───────────── PDI ─────────────
+
+model DevelopmentPlan {
+  id          String              @id @default(cuid())
+  userId      String
+  user        User                @relation("PlanOwner", fields: [userId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User                @relation("PlanCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  title       String
+  focus       String?
+  /// ACTIVE | DONE | CANCELED
+  status      String              @default("ACTIVE")
+  dueDate     DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  actions     DevelopmentAction[]
+
+  @@index([userId])
+  @@map("development_plans")
+}
+
+model DevelopmentAction {
+  id        String          @id @default(cuid())
+  planId    String
+  plan      DevelopmentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  text      String
+  /// CURSO | PRATICA | MENTORIA | LEITURA | OUTRO
+  kind      String          @default("PRATICA")
+  dueDate   DateTime?
+  done      Boolean         @default(false)
+  doneAt    DateTime?
+  createdAt DateTime        @default(now())
+
+  @@index([planId])
+  @@map("development_actions")
+}
+
+// ───────────── Comunicado de leitura obrigatória ─────────────
+
+model AnnouncementRead {
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@id([announcementId, userId])
+  @@map("announcement_reads")
 }

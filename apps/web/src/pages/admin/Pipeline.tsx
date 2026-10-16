@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import clsx from 'clsx';
 import { toast } from 'sonner';
-import { ArrowLeft, Columns3, FileText, List, Pencil, Search } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Columns3, FileText, List, Pencil, Search } from 'lucide-react';
 import { EMPLOYMENT_TYPE_LABEL, JOB_STATUS_LABEL, PROFILES, STAGES, STAGE_COLOR, STAGE_LABEL, WORK_MODE_LABEL, fitLabel, type Stage } from '@dumax/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -26,12 +26,16 @@ export function FitBadge({ fit, className }: { fit: number | null; className?: s
 function CandidateCard({ a }: { a: PipelineCard }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: a.id });
   const profile = a.profile ? PROFILES[a.profile] : null;
+  const misses = (a.screeningAnswers ?? []).filter((x) => !x.passed);
+  // Tempo parado na etapa (como o "guide time" do Teamtailor)
+  const idle = Math.floor((Date.now() - +new Date(a.stageUpdatedAt ?? a.createdAt)) / 86400000);
+  const idleWarn = a.stage !== 'HIRED' && a.stage !== 'REJECTED' && idle >= 5;
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} style={transform ? { transform: `translate(${transform.x}px,${transform.y}px)`, zIndex: 50 } : undefined}>
       <Link
         to={`/admin/recrutamento/candidaturas/${a.id}`}
         onClick={(e) => isDragging && e.preventDefault()}
-        className={clsx('block rounded-md border border-ink-200 bg-white px-3 py-2.5 hover:border-brand-300', isDragging && 'opacity-80 shadow-pop')}
+        className={clsx('block rounded-xl border border-ink-200/80 bg-white px-3 py-2.5 shadow-card hover:border-brand-300', isDragging && 'opacity-80 shadow-pop')}
       >
         <div className="flex items-center gap-2">
           <p className="min-w-0 flex-1 truncate text-[13px] font-medium">{a.candidate.name}</p>
@@ -46,7 +50,18 @@ function CandidateCard({ a }: { a: PipelineCard }) {
           )}
           {a.hasResume && <FileText className="h-3 w-3 text-ink-400" />}
           {a.rating ? <Stars value={a.rating} size={10} /> : null}
-          <span className="ml-auto">{fromNow(a.createdAt)}</span>
+          {misses.length > 0 && (
+            <span className={clsx('flex items-center gap-0.5 font-medium', misses.some((x) => x.mode === 'ELIMINATE') ? 'text-bad' : 'text-warn')} title={misses.map((x) => x.text).join(' · ')}>
+              <AlertTriangle className="h-3 w-3" /> {misses.length}
+            </span>
+          )}
+          {idleWarn ? (
+            <span className={clsx('ml-auto rounded-full px-1.5 py-px font-medium', idle >= 10 ? 'bg-bad-soft text-bad' : 'bg-warn-soft text-warn')} title="Dias sem mudar de etapa">
+              {idle}d parado
+            </span>
+          ) : (
+            <span className="ml-auto">{fromNow(a.createdAt)}</span>
+          )}
         </div>
       </Link>
     </div>
@@ -56,7 +71,7 @@ function CandidateCard({ a }: { a: PipelineCard }) {
 function Column({ stage, items }: { stage: Stage; items: PipelineCard[] }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   return (
-    <div ref={setNodeRef} className={clsx('flex w-60 shrink-0 flex-col rounded-lg border border-transparent bg-ink-50', isOver && 'border-brand-300 bg-brand-50')}>
+    <div ref={setNodeRef} className={clsx('flex min-h-0 min-w-[220px] flex-1 basis-0 flex-col rounded-2xl border border-transparent bg-ink-100/70', isOver && 'border-brand-300 bg-brand-50')}>
       <div className="flex items-center gap-2 px-3 py-2.5">
         <span className="h-2 w-2 rounded-full" style={{ background: STAGE_COLOR[stage] }} />
         <p className="text-[13px] font-medium">{STAGE_LABEL[stage]}</p>
@@ -82,6 +97,7 @@ export default function Pipeline() {
   const [sort, setSort] = useState<Sort>('fit');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(false);
+  const [showRejected, setShowRejected] = useState(false);
   const [pending, setPending] = useState<{ app: PipelineCard; stage: Stage } | null>(null);
   const [note, setNote] = useState('');
   const [notifyCandidate, setNotifyCandidate] = useState(true);
@@ -121,22 +137,42 @@ export default function Pipeline() {
     sort === 'fit' ? (b.fit ?? -1) - (a.fit ?? -1) : sort === 'rating' ? (b.rating ?? 0) - (a.rating ?? 0) : +new Date(b.createdAt) - +new Date(a.createdAt);
   const filtered = apps.filter((a) => a.candidate.name.toLowerCase().includes(search.toLowerCase())).sort(sorter);
   const withFit = apps.filter((a) => a.fit !== null);
+  const active = apps.filter((a) => a.stage !== 'REJECTED' && a.stage !== 'HIRED');
+  const rejected = apps.filter((a) => a.stage === 'REJECTED').length;
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div>
         <Link to="/admin/recrutamento" className="inline-flex items-center gap-1 text-[13px] text-ink-500 hover:text-ink-900">
           <ArrowLeft className="h-4 w-4" /> Vagas
         </Link>
         <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-semibold">{job?.title ?? 'Vaga'}</h1>
+            <h1 className="text-[28px] font-bold leading-tight">{job?.title ?? 'Vaga'}</h1>
             {job && (
-              <p className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-ink-500">
+              <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-500">
                 <Badge color={JOB_STATUS_COLOR[job.status]} dot>
                   {JOB_STATUS_LABEL[job.status]}
                 </Badge>
-                {[job.department?.name, WORK_MODE_LABEL[job.workMode], EMPLOYMENT_TYPE_LABEL[job.employmentType]].filter(Boolean).join(' · ')}
+                <span>{[job.department?.name, WORK_MODE_LABEL[job.workMode], EMPLOYMENT_TYPE_LABEL[job.employmentType]].filter(Boolean).join(' · ')}</span>
+                <span className="text-ink-300">|</span>
+                <span>
+                  <strong className="num font-semibold text-ink-800">{active.length}</strong> em processo
+                </span>
+                <span>
+                  <strong className="num font-semibold text-ink-800">{withFit.filter((a) => (a.fit ?? 0) >= 80).length}</strong> com alta aderência
+                </span>
+                {job.idealProfile ? (
+                  <span className="flex items-center gap-2">
+                    Perfil ideal <span className="w-24"><ProfileBar profile={job.idealProfile} /></span>
+                  </span>
+                ) : (
+                  isHR && (
+                    <button onClick={() => setEditing(true)} className="text-brand-600 hover:underline">
+                      Definir perfil ideal
+                    </button>
+                  )
+                )}
               </p>
             )}
           </div>
@@ -149,38 +185,6 @@ export default function Pipeline() {
                 </Button>
               )}
             </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-px overflow-hidden rounded-lg border border-ink-200 bg-ink-100 sm:grid-cols-[1fr_1fr_1.4fr]">
-        <div className="bg-white px-4 py-3">
-          <p className="text-xs text-ink-500">Candidatos</p>
-          <p className="num text-xl font-semibold">{apps.length}</p>
-        </div>
-        <div className="bg-white px-4 py-3">
-          <p className="text-xs text-ink-500">Fizeram o teste</p>
-          <p className="num text-xl font-semibold">
-            {withFit.length || apps.filter((a) => a.profile).length}
-            {withFit.length > 0 && <span className="ml-2 text-xs font-normal text-ink-500">{withFit.filter((a) => (a.fit ?? 0) >= 80).length} com alta aderência</span>}
-          </p>
-        </div>
-        <div className="bg-white px-4 py-3">
-          <p className="mb-1.5 text-xs text-ink-500">Perfil ideal da vaga</p>
-          {job?.idealProfile ? (
-            <>
-              <ProfileBar profile={job.idealProfile} />
-              <p className="num mt-1 text-2xs text-ink-500">
-                {Object.entries(job.idealProfile)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([k, v]) => `${PROFILES[k as keyof typeof PROFILES].label} ${v}%`)
-                  .join(' · ')}
-              </p>
-            </>
-          ) : (
-            <button onClick={() => setEditing(true)} className="text-[13px] text-brand-600 hover:underline">
-              Definir perfil ideal para calcular a aderência
-            </button>
           )}
         </div>
       </div>
@@ -204,12 +208,20 @@ export default function Pipeline() {
           <option value="recent">Mais recentes</option>
           <option value="rating">Melhor avaliação</option>
         </Select>
+        {rejected > 0 && (
+          <button
+            onClick={() => setShowRejected((v) => !v)}
+            className={clsx('ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition', showRejected ? 'bg-ink-900 text-white' : 'bg-ink-100 text-ink-600 hover:bg-ink-200')}
+          >
+            {showRejected ? 'Esconder descartados' : `Ver descartados (${rejected})`}
+          </button>
+        )}
       </div>
 
       {view === 'board' ? (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-          <div className="scroll-thin flex min-h-[420px] flex-1 gap-2 overflow-x-auto pb-2" style={{ height: 'calc(100vh - 340px)' }}>
-            {STAGES.map((s) => (
+          <div className="scroll-thin flex min-h-0 flex-1 gap-2.5 overflow-x-auto pb-1">
+            {STAGES.filter((s) => s !== 'REJECTED' || showRejected).map((s) => (
               <Column key={s} stage={s} items={filtered.filter((a) => a.stage === s)} />
             ))}
           </div>
@@ -229,7 +241,7 @@ export default function Pipeline() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((a, i) => (
+              {filtered.filter((a) => showRejected || a.stage !== 'REJECTED').map((a, i) => (
                 <tr key={a.id} className="cursor-pointer" onClick={() => navigate(`/admin/recrutamento/candidaturas/${a.id}`)}>
                   <td className="num text-ink-400">{i + 1}</td>
                   <td>

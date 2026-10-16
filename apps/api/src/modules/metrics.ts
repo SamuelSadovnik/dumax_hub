@@ -64,7 +64,7 @@ export async function metricsRoutes(app: FastifyInstance) {
     const now = new Date();
     const today = dateOnly(brDateKey());
 
-    const [people, byStatus, done7, created7, headcount, departments, todayDays, contested] = await Promise.all([
+    const [people, byStatus, done7, created7, headcount, departments, todayDays] = await Promise.all([
       peopleTaskMetrics(me),
       prisma.task.groupBy({ by: ['status'], where: { ...assignee, status: { not: 'CANCELED' } }, _count: true }),
       prisma.task.count({ where: { ...assignee, status: 'DONE', completedAt: { gte: daysAgo(7) } } }),
@@ -74,7 +74,6 @@ export async function metricsRoutes(app: FastifyInstance) {
         select: { id: true, name: true, color: true, _count: { select: { members: { where: { active: true, ...(scope ? { id: { in: scope } } : {}) } } } } },
       }),
       prisma.timeDay.groupBy({ by: ['status'], where: { date: today, ...(scope ? { userId: { in: scope } } : {}) }, _count: true }),
-      prisma.timeDay.count({ where: { validation: 'CONTESTED', ...(scope ? { userId: { in: scope } } : {}) } }),
     ]);
 
     // Tendência de entregas — últimas 8 semanas
@@ -109,7 +108,6 @@ export async function metricsRoutes(app: FastifyInstance) {
       departments: departments.map((d) => ({ id: d.id, name: d.name, color: d.color, headcount: d._count.members })).filter((d) => d.headcount > 0),
       ponto: {
         today: Object.fromEntries(todayDays.map((d) => [d.status, d._count])),
-        contested,
       },
     };
 

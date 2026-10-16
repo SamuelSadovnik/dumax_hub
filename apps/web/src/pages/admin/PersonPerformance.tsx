@@ -127,7 +127,6 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
   const [tab, setTab] = useState<'open' | 'done' | 'goals' | 'feedback' | 'logs'>('open');
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
-  const [logOpen, setLogOpen] = useState(false);
 
   const { data, isLoading } = useQuery({ queryKey: ['person-performance', id, days], queryFn: () => api.get<PersonPerformanceData>(`/performance/people/${id}`, { days }) });
   const { data: profile } = useQuery({
@@ -145,16 +144,8 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
   const weekly = data.weekly.map((w) => ({
     ...w,
     label: fmtDayKey(w.weekStart, 'dd/MM'),
-    registered: w.loggedHours,
-    meetings: w.meetingHours,
-    untracked: w.untrackedHours,
     onTime: w.onTimeRate === null ? null : Math.round(w.onTimeRate * 100),
   }));
-  const totalTime = Math.max(1, m.workedMinutes);
-  const activityRows = [
-    ...data.activity.filter((a) => a.minutes > 0).map((a) => ({ key: a.key, label: a.key === 'AGENDA' ? 'Reuniões da agenda' : TIMELOG_ACTIVITY_LABEL[a.key as TimeLogActivity], minutes: a.minutes, color: TIMELOG_ACTIVITY_COLOR[a.key] })),
-    ...(m.untrackedMinutes > 0 ? [{ key: 'SEM_REGISTRO', label: 'Sem atividade registrada', minutes: m.untrackedMinutes, color: '#D93036' }] : []),
-  ].sort((a, b) => b.minutes - a.minutes);
 
   const removeFeedback = async (fid: string) => {
     if (!confirm('Excluir este registro?')) return;
@@ -209,11 +200,6 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
               { value: '90', label: '90d' },
             ]}
           />
-          {isMe && (
-            <Button size="sm" variant="secondary" icon={<Clock className="h-3.5 w-3.5" />} onClick={() => setLogOpen(true)}>
-              Registrar horas
-            </Button>
-          )}
           {data.canManage && !isMe && (
             <>
               <Button size="sm" variant="secondary" icon={<MessageSquarePlus className="h-3.5 w-3.5" />} onClick={() => setFeedbackOpen(true)}>
@@ -228,9 +214,7 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
       </div>
 
       {/* Indicadores */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Tempo com atividade" value={pct(m.utilization)} tone={m.utilization !== null && m.utilization < 0.6 ? 'danger' : 'default'} hint={`${formatMinutes(m.loggedMinutes + (m.activity.AGENDA ?? 0))} de ${formatMinutes(m.workedMinutes)}`} />
-        <StatCard label="Sem registro" value={formatMinutes(m.untrackedMinutes)} tone={m.untrackedMinutes > 8 * 60 ? 'danger' : 'default'} hint="horas no ponto sem atividade" />
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard label="Entregas" value={m.tasksDone} delta={m.tasksDone - data.prevMetrics.tasksDone} hint={`${pct(m.onTimeRate)} no prazo`} />
         <StatCard label="Atrasadas" value={m.overdueOpen} tone={m.overdueOpen ? 'danger' : 'default'} hint={`${m.openTasks} em aberto · ${m.blocked} bloqueadas`} />
         <StatCard label="Pontualidade" value={pct(m.punctuality)} hint={`${m.lateDays} atraso(s) · ${m.absentDays} falta(s)`} />
@@ -249,45 +233,6 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
           </ul>
         </Panel>
       )}
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Panel title="Para onde vai o tempo" subtitle="Horas por semana: registradas, em reunião e sem registro">
-          <div className="h-64 px-2 py-3">
-            <ResponsiveContainer>
-              <BarChart data={weekly} barSize={22}>
-                <CartesianGrid vertical={false} stroke="#EEF0F4" />
-                <XAxis dataKey="label" tick={axis} axisLine={false} tickLine={false} />
-                <YAxis tick={axis} axisLine={false} tickLine={false} width={30} unit="h" />
-                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: '#F6F7F9' }} formatter={(v: number) => `${v}h`} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="registered" name="Atividade registrada" stackId="t" fill="#2D3FE0" />
-                <Bar dataKey="meetings" name="Reuniões" stackId="t" fill="#B3A4FF" />
-                <Bar dataKey="untracked" name="Sem registro" stackId="t" fill="#F3B6B8" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-
-        <Panel title="Distribuição do tempo" subtitle={`${formatMinutes(m.workedMinutes)} trabalhadas no período`}>
-          <ul className="space-y-3 px-4 py-4">
-            {activityRows.map((a) => (
-              <li key={a.key}>
-                <div className="mb-1 flex justify-between text-[13px]">
-                  <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ background: a.color }} />
-                    {a.label}
-                  </span>
-                  <span className="num text-ink-600">
-                    {formatMinutes(a.minutes)} <span className="text-ink-400">· {Math.round((a.minutes / totalTime) * 100)}%</span>
-                  </span>
-                </div>
-                <ProgressBar value={a.minutes / totalTime} color={a.color} />
-              </li>
-            ))}
-            {!activityRows.length && <li className="text-sm text-ink-500">Sem horas no período.</li>}
-          </ul>
-        </Panel>
-      </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Panel title="Entregas por semana" subtitle="Demandas concluídas e % no prazo">
@@ -318,7 +263,6 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
             <tbody>
               {(
                 [
-                  ['utilization', 'Tempo com atividade'],
                   ['onTime', 'Entregas no prazo'],
                   ['throughput', 'Volume entregue'],
                   ['goals', 'Metas'],
@@ -501,7 +445,6 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
 
       {feedbackOpen && <FeedbackModal userId={data.user.id} onClose={() => setFeedbackOpen(false)} />}
       {taskOpen && <NewTaskModal open onClose={() => setTaskOpen(false)} defaultAssignee={data.user.id} />}
-      {logOpen && <LogTimeModal onClose={() => setLogOpen(false)} />}
     </div>
   );
 }

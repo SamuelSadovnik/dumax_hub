@@ -5,7 +5,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Geist', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        display: ['Geist', 'system-ui', 'sans-serif'],
+        display: ['Bricolage Grotesque', 'Geist', 'system-ui', 'sans-serif'],
       },
       colors: {
         // neutros azul-marinho (texto, bordas, superfícies)
@@ -36,7 +36,7 @@ export default {
           700: '#1C289B',
           800: '#17207A',
         },
-        canvas: '#F3F5F8',
+        canvas: '#F2F4F8',
         ok: { DEFAULT: '#1F9254', soft: '#E6F4EC' },
         warn: { DEFAULT: '#C77700', soft: '#FDF1DE' },
         bad: { DEFAULT: '#D93036', soft: '#FCE9EA' },
@@ -46,7 +46,8 @@ export default {
         '2xs': ['11px', '14px'],
       },
       boxShadow: {
-        card: '0 1px 0 rgba(13,19,48,.04)',
+        card: '0 1px 2px rgba(13,19,48,.04), 0 0 0 1px rgba(13,19,48,.02)',
+        lift: '0 8px 24px -12px rgba(13,19,48,.18)',
         pop: '0 16px 48px -12px rgba(13,19,48,.28), 0 2px 6px rgba(13,19,48,.06)',
         focus: '0 0 0 3px rgba(45,63,224,.18)',
       },

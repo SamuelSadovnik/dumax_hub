@@ -8,6 +8,8 @@ import { prisma } from '../lib/prisma';
 import { notify } from '../lib/notify';
 import { runLicenseAlerts } from '../modules/licenses';
 import { documentHousekeeping } from '../modules/documents';
+import { assessmentHousekeeping } from '../modules/recruitment';
+import { remindPendingProfiles } from '../modules/profiles';
 
 /** Rotinas agendadas (rodam dentro do processo da API) */
 export function startScheduler(log: FastifyBaseLogger) {
@@ -81,6 +83,32 @@ export function startScheduler(log: FastifyBaseLogger) {
         log.info(await documentHousekeeping(), 'documentos');
       } catch (err) {
         log.error(err, 'falha na rotina de documentos');
+      }
+    },
+    { timezone: env.TZ },
+  );
+
+  // Testes de candidatos: lembrete após 2 dias e vencimento — todo dia às 09:30
+  cron.schedule(
+    '30 9 * * *',
+    async () => {
+      try {
+        log.info(await assessmentHousekeeping(), 'testes de candidatos');
+      } catch (err) {
+        log.error(err, 'falha na rotina de testes');
+      }
+    },
+    { timezone: env.TZ },
+  );
+
+  // Teste de perfil dos colaboradores: lembra quem ainda não fez — toda segunda às 09:15
+  cron.schedule(
+    '15 9 * * 1',
+    async () => {
+      try {
+        log.info(await remindPendingProfiles(), 'lembrete de teste de perfil');
+      } catch (err) {
+        log.error(err, 'falha no lembrete de teste de perfil');
       }
     },
     { timezone: env.TZ },

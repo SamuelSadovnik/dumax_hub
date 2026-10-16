@@ -122,18 +122,7 @@ export async function profileRoutes(app: FastifyInstance) {
   });
 
   /** RH convida quem ainda não fez o teste */
-  app.post('/request', { preHandler: requireRole('ADMIN', 'HR') }, async (req) => {
-    const users = await prisma.user.findMany({ where: { active: true }, select: { id: true } });
-    const done = await latestProfiles(users.map((u) => u.id));
-    const pending = users.filter((u) => !done.has(u.id)).map((u) => u.id);
-    await notify(pending, {
-      type: 'profile.request',
-      title: 'Faça seu teste de perfil (5 minutos)',
-      body: `${req.auth.name} pediu para todos responderem. Ajuda a montar times mais equilibrados.`,
-      link: '/perfil-comportamental',
-    });
-    return { invited: pending.length };
-  });
+  app.post('/request', { preHandler: requireRole('ADMIN', 'HR') }, async (req) => remindPendingProfiles(`${req.auth.name} pediu para todos responderem.`));
 
   /** Perfil de uma pessoa específica (gestor/RH ou a própria) */
   app.get('/users/:id', async (req) => {
@@ -143,4 +132,23 @@ export async function profileRoutes(app: FastifyInstance) {
     if (!p) return null;
     return { ...p, meta: PROFILES[p.primary], canSeeDetails: isHR(req.auth) || req.auth.id === id || req.auth.role === 'MANAGER' };
   });
+}
+
+/**
+ * Convida quem ainda não fez o teste de perfil. Roda sozinho toda segunda
+ * (ver jobs/scheduler) e também pelo botão do RH.
+ */
+export async function remindPendingProfiles(reason = 'Lembrete semanal automático.') {
+  const users = await prisma.user.findMany({ where: { active: true }, select: { id: true } });
+  const done = await latestProfiles(users.map((u) => u.id));
+  const pending = users.filter((u) => !done.has(u.id)).map((u) => u.id);
+  if (pending.length) {
+    await notify(pending, {
+      type: 'profile.request',
+      title: 'Faça seu teste de perfil (5 minutos)',
+      body: `${reason} Ajuda a montar times mais equilibrados.`,
+      link: '/perfil-comportamental',
+    });
+  }
+  return { invited: pending.length };
 }

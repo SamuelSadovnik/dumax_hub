@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import {
   BarChart3, Bell, Briefcase, Building2, CalendarDays, CheckSquare, ChevronsLeft, ChevronsRight, Clock, FileSignature,
   Fingerprint, HeartPulse, Home, LogOut, Megaphone, Menu as MenuIcon, MessageCircle, Network, ShieldCheck, Smile, Sparkles,
-  Target, User, Users, Volume2, VolumeX, X, Compass, ExternalLink,
+  Target, User, Users, Volume2, VolumeX, X, Compass, ExternalLink, Handshake, Sprout, UserPlus, Library,
 } from 'lucide-react';
 import { ROLE_LABEL } from '@dumax/shared';
 import { useAuth, useMe } from '@/lib/auth';
@@ -60,7 +60,7 @@ function NavSection({ title, items, collapsed, onNavigate }: { title?: string; i
             clsx(
               'relative mb-px flex h-9 items-center gap-3 rounded-lg text-sm transition-colors',
               collapsed ? 'justify-center px-0' : 'px-3',
-              isActive ? 'bg-white/[.08] font-medium text-white' : 'text-ink-300 hover:bg-white/[.05] hover:text-white',
+              isActive ? 'bg-brand-500/20 font-medium text-white' : 'text-ink-300 hover:bg-white/[.05] hover:text-white',
             )
           }
         >
@@ -288,6 +288,8 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
               { to: '/admin', label: 'Visão geral', icon: <BarChart3 />, end: true },
               { to: '/admin/ponto', label: 'Ponto do time', icon: <Clock /> },
               { to: '/admin/metas', label: 'Metas do time', icon: <Target /> },
+              { to: '/admin/1-1', label: '1:1 com o time', icon: <Handshake /> },
+              { to: '/admin/pdi', label: 'PDI do time', icon: <Sprout /> },
               { to: '/admin/perfis', label: 'Mapa de perfis', icon: <Compass /> },
               ...(isHR ? [{ to: '/admin/clima', label: 'Clima', icon: <HeartPulse /> }] : []),
             ],
@@ -296,6 +298,7 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
             title: 'Recrutamento',
             items: [
               { to: '/admin/recrutamento', label: 'Vagas e candidatos', icon: <Briefcase /> },
+              { to: '/admin/talentos', label: 'Banco de talentos', icon: <Library /> },
               { to: '/vagas', label: 'Portal de vagas', icon: <ExternalLink />, external: true },
             ],
           },
@@ -322,7 +325,7 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
       : [
           {
             items: [
-              { to: '/inicio', label: 'Início', icon: <Home />, end: true },
+              { to: '/inicio', label: 'Dashboard', icon: <Home />, end: true },
               { to: '/demandas', label: 'Demandas', icon: <CheckSquare /> },
               { to: '/chat', label: 'Chat', icon: <MessageCircle />, badge: unread?.total },
               { to: '/agenda', label: 'Agenda', icon: <CalendarDays /> },
@@ -334,6 +337,8 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
             items: [
               { to: '/desempenho', label: 'Meu desempenho', icon: <BarChart3 /> },
               { to: '/metas', label: 'Minhas metas', icon: <Target /> },
+              { to: '/1-1', label: '1:1', icon: <Handshake /> },
+              { to: '/pdi', label: 'Meu PDI', icon: <Sprout /> },
               { to: '/ponto', label: 'Meu ponto', icon: <Fingerprint /> },
               { to: '/perfil-comportamental', label: 'Meu perfil', icon: <Compass /> },
             ],
@@ -345,11 +350,14 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
               { to: '/organograma', label: 'Organograma', icon: <Network /> },
               { to: '/perfis', label: 'Mapa de perfis', icon: <Users /> },
               { to: '/clima', label: 'Pulse da semana', icon: <Smile /> },
+              { to: '/indicar', label: 'Indicar alguém', icon: <UserPlus /> },
             ],
           },
         ];
 
   const fullBleed = location.pathname.startsWith('/chat');
+  // Telas de quadro (kanban, agenda): ocupam a altura da janela e rolam só por dentro — sem rolagem dupla
+  const fitHeight = ['/demandas', '/agenda'].includes(location.pathname) || location.pathname.startsWith('/admin/recrutamento/vagas/');
   const isCollapsed = collapsed && !mobileOpen;
   const close = () => setMobileOpen(false);
 
@@ -361,7 +369,7 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
         ) : (
           <span className="flex items-center gap-2">
             <Logo light />
-            {portal === 'admin' && <span className="rounded bg-brand-500/20 px-1.5 py-0.5 text-2xs font-semibold text-brand-200">ADMIN</span>}
+            {portal === 'admin' && <span className="rounded-full bg-brand-500/25 px-2 py-0.5 text-2xs font-semibold text-brand-200">Admin</span>}
           </span>
         )}
         <button className="text-ink-400 lg:hidden" onClick={close} aria-label="Fechar menu">
@@ -376,6 +384,15 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
       <div className={clsx('shrink-0 border-t border-white/10 p-2', isCollapsed && 'flex flex-col items-center gap-1')}>
         <Menu
           align="left"
+          side="top"
+          matchWidth
+          className="flex w-full"
+          header={
+            <div className="mb-1 border-b border-ink-100 px-3 pb-2.5 pt-1.5">
+              <p className="truncate text-sm font-semibold text-ink-900">{me.name}</p>
+              <p className="truncate text-xs text-ink-500">{me.email}</p>
+            </div>
+          }
           trigger={() => (
             <button className={clsx('flex w-full items-center gap-2.5 rounded-lg p-1.5 text-left hover:bg-white/[.06]', isCollapsed && 'justify-center')}>
               <Avatar user={me} size={30} />
@@ -463,9 +480,13 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
           <NotificationsBell />
         </header>
         <NotificationPermissionBar />
-        <main className={clsx('min-h-0 flex-1', fullBleed ? 'overflow-hidden' : 'scroll-thin overflow-y-auto')}>
+        <main className={clsx('min-h-0 flex-1', fullBleed || fitHeight ? 'overflow-hidden' : 'scroll-thin overflow-y-auto')}>
           {fullBleed ? (
             <Outlet />
+          ) : fitHeight ? (
+            <div className="mx-auto flex h-full w-full max-w-[1400px] flex-col px-4 py-6 sm:px-6 lg:px-8">
+              <Outlet />
+            </div>
           ) : (
             <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
               <Outlet />

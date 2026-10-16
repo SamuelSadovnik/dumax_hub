@@ -330,17 +330,15 @@ const handlers: Record<string, Handler> = {
       periodo: `${de} a ${ate}`,
       pessoas: users.map((u) => {
         const ds = days.filter((d) => d.userId === u.id);
-        const saldo = ds.reduce((a, d) => a + (d.adjustedWorkedMinutes != null ? d.adjustedWorkedMinutes - d.expectedMinutes : d.balanceMinutes), 0);
+        const saldo = ds.reduce((a, d) => a + d.balanceMinutes, 0);
         return {
           nome: u.name,
-          horas_trabalhadas: formatMinutes(ds.reduce((a, d) => a + (d.adjustedWorkedMinutes ?? d.workedMinutes), 0)),
+          horas_trabalhadas: formatMinutes(ds.reduce((a, d) => a + d.workedMinutes, 0)),
           banco_de_horas: formatMinutes(saldo),
           atrasos: ds.filter((d) => d.status === 'LATE').length,
           minutos_de_atraso: ds.reduce((a, d) => a + d.lateMinutes, 0),
           faltas: ds.filter((d) => d.status === 'ABSENT').length,
           dias_incompletos: ds.filter((d) => d.status === 'INCOMPLETE').length,
-          pendentes_validacao: ds.filter((d) => d.validation === 'PENDING' && d.status !== 'OFF').length,
-          contestados: ds.filter((d) => d.validation === 'CONTESTED').length,
         };
       }),
     };

@@ -79,7 +79,7 @@ export async function computePerformance(userIds: string[], from: Date, to: Date
     }),
     prisma.timeDay.findMany({
       where: { userId: { in: userIds }, date: { gte: fromDay, lte: toDay } },
-      select: { userId: true, status: true, workedMinutes: true, adjustedWorkedMinutes: true, expectedMinutes: true },
+      select: { userId: true, status: true, workedMinutes: true, expectedMinutes: true },
     }),
     prisma.timeLog.findMany({
       where: { userId: { in: userIds }, startedAt: { gte: from, lt: end } },
@@ -108,7 +108,7 @@ export async function computePerformance(userIds: string[], from: Date, to: Date
     const o = open.filter((t) => t.assigneeId === id);
 
     const ds = days.filter((x) => x.userId === id);
-    const worked = ds.reduce((a, x) => a + (x.adjustedWorkedMinutes ?? x.workedMinutes), 0);
+    const worked = ds.reduce((a, x) => a + x.workedMinutes, 0);
     const workDays = ds.filter((x) => x.status !== 'OFF' && x.status !== 'ABSENT').length;
     const lateDays = ds.filter((x) => x.status === 'LATE').length;
     const absentDays = ds.filter((x) => x.status === 'ABSENT').length;
@@ -165,7 +165,6 @@ export async function computePerformance(userIds: string[], from: Date, to: Date
     const components: PersonResult['components'] = {};
     if (m.onTimeRate !== null) components.onTime = m.onTimeRate;
     if (med > 0 && (m.tasksDone > 0 || m.openTasks > 0)) components.throughput = Math.min(1, (m.effortDone / med) * 0.8);
-    if (m.utilization !== null) components.utilization = m.utilization;
     if (m.punctuality !== null) components.punctuality = m.punctuality;
     if (m.goalProgress !== null) components.goals = m.goalProgress;
 
@@ -185,13 +184,6 @@ export async function computePerformance(userIds: string[], from: Date, to: Date
 /** Alertas legíveis a partir das métricas (o que o gestor precisa olhar) */
 export function buildFlags(m: PersonMetrics, score: number | null, prevScore: number | null): PerformanceFlag[] {
   const f: PerformanceFlag[] = [];
-  if (m.workedMinutes >= 8 * 60 && m.utilization !== null && m.utilization < 0.6) {
-    f.push({
-      code: 'UNTRACKED_TIME',
-      severity: m.utilization < 0.4 ? 'high' : 'medium',
-      message: `${formatMinutes(m.untrackedMinutes)} trabalhadas sem atividade registrada (${Math.round(m.utilization * 100)}% do tempo com registro)`,
-    });
-  }
   if (m.overdueOpen >= 1) {
     f.push({ code: 'OVERDUE', severity: m.overdueOpen >= 3 ? 'high' : 'medium', message: `${m.overdueOpen} demanda(s) atrasada(s) em aberto` });
   }

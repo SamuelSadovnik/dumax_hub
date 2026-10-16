@@ -8,7 +8,7 @@ import { HttpError } from './lib/http';
 import { prisma } from './lib/prisma';
 import { initRealtime } from './lib/realtime';
 import { ensureUploadDirs, mimeOf, readPrivate } from './lib/storage';
-import { verifyFileSignature } from './lib/crypto';
+import { verifyAvatar, verifyFileSignature } from './lib/crypto';
 import { startScheduler } from './jobs/scheduler';
 import { authRoutes } from './modules/auth';
 import { userRoutes } from './modules/users';
@@ -27,6 +27,8 @@ import { timelogRoutes } from './modules/performance/timelogs';
 import { goalRoutes } from './modules/performance/goals';
 import { documentRoutes } from './modules/documents';
 import { licenseRoutes } from './modules/licenses';
+import { oneOnOneRoutes } from './modules/oneonones';
+import { developmentRoutes } from './modules/development';
 import { inboxRoutes } from './modules/inbox';
 import { profileRoutes } from './modules/profiles';
 
@@ -55,6 +57,15 @@ app.get('/api/files/*', async (req, reply) => {
   const { exp, sig } = req.query as { exp?: string; sig?: string };
   if (!exp || !sig || !verifyFileSignature(key, exp, sig)) return reply.status(403).send({ message: 'Link expirado ou inválido' });
   reply.type(mimeOf(key)).header('Cache-Control', 'private, max-age=3600');
+  return reply.send(await readPrivate(key));
+});
+
+/** Fotos de perfil — link permanente assinado (ver avatarUrlFor) */
+app.get('/api/avatars/:k/:sig', async (req, reply) => {
+  const { k, sig } = req.params as { k: string; sig: string };
+  const key = verifyAvatar(k, sig);
+  if (!key) return reply.status(404).send({ message: 'Foto não encontrada' });
+  reply.type(mimeOf(key)).header('Cache-Control', 'private, max-age=31536000, immutable');
   return reply.send(await readPrivate(key));
 });
 
@@ -108,6 +119,8 @@ await app.register(documentRoutes, { prefix: '/api' }); // /api/documents e /api
 await app.register(licenseRoutes, { prefix: '/api/licenses' });
 await app.register(inboxRoutes, { prefix: '/api/inbox' });
 await app.register(profileRoutes, { prefix: '/api/profiles' });
+await app.register(oneOnOneRoutes, { prefix: '/api/one-on-ones' });
+await app.register(developmentRoutes, { prefix: '/api/pdi' });
 
 // Checagem rápida do banco na subida, com mensagem clara no terminal
 try {

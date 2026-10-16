@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { EMPLOYMENT_TYPE_LABEL, WORK_MODE_LABEL } from '@dumax/shared';
 import { api, errorMessage } from '@/lib/api';
 import type { Job } from '@/lib/types';
-import { Badge, Button, Checkbox, EmptyState, Field, Input, PageLoader, Textarea } from '@/components/ui';
+import type { ScreeningQuestion } from '@dumax/shared';
+import { Badge, Button, Checkbox, EmptyState, Field, Input, PageLoader, Select, Textarea } from '@/components/ui';
 import { PublicHeader, salaryText } from './Careers';
 
 function Section({ title, text }: { title: string; text: string | null }) {
@@ -19,6 +20,58 @@ function Section({ title, text }: { title: string; text: string | null }) {
   );
 }
 
+/** Uma pergunta da vaga: Sim/Não, múltipla escolha ou número */
+function ScreeningField({ q, value, onChange }: { q: ScreeningQuestion; value: string | undefined; onChange: (v: string) => void }) {
+  const type = q.type ?? 'YES_NO';
+  const seg = (opts: { v: string; label: string }[]) => (
+    <span className="inline-flex shrink-0 flex-wrap rounded-lg bg-ink-100 p-0.5" role="radiogroup" aria-label={q.text}>
+      {opts.map(({ v, label }) => (
+        <button
+          key={v}
+          type="button"
+          role="radio"
+          aria-checked={value === v}
+          onClick={() => onChange(v)}
+          className={`h-7 rounded-md px-3 text-[13px] font-medium transition ${value === v ? 'bg-white text-ink-900 shadow-sm ring-1 ring-ink-200' : 'text-ink-500 hover:text-ink-900'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </span>
+  );
+  if (type === 'YES_NO')
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-ink-200 px-3 py-2">
+        <span className="text-sm text-ink-800">{q.text}</span>
+        {seg([{ v: 'YES', label: 'Sim' }, { v: 'NO', label: 'Não' }])}
+      </div>
+    );
+  const options = q.options ?? [];
+  return (
+    <div className="space-y-2 rounded-lg border border-ink-200 px-3 py-2.5">
+      <span className="block text-sm text-ink-800">{q.text}</span>
+      {type === 'NUMBER' ? (
+        <div className="flex items-center gap-2">
+          {q.unit === 'R$' && <span className="text-sm text-ink-500">R$</span>}
+          <Input type="number" inputMode="decimal" min={0} className="w-36" value={value ?? ''} onChange={(e) => onChange(e.target.value)} aria-label={q.text} />
+          {q.unit && q.unit !== 'R$' && <span className="text-sm text-ink-500">{q.unit}</span>}
+        </div>
+      ) : options.length <= 4 && options.every((o) => o.length <= 14) ? (
+        seg(options.map((o) => ({ v: o, label: o })))
+      ) : (
+        <Select value={value ?? ''} onChange={(e) => onChange(e.target.value)} aria-label={q.text}>
+          <option value="">Selecione</option>
+          {options.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </Select>
+      )}
+    </div>
+  );
+}
+
 export default function JobPublic() {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -26,6 +79,7 @@ export default function JobPublic() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', linkedinUrl: '', city: '', coverLetter: '' });
   const [file, setFile] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -43,14 +97,18 @@ export default function JobPublic() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!file) return toast.error('Anexe seu currículo');
+    if ((job.screeningQuestions ?? []).some((q) => !String(answers[q.id] ?? '').trim())) return toast.error('Responda as perguntas sobre a vaga');
     if (!consent) return toast.error('É preciso aceitar o uso dos seus dados');
     setSending(true);
     try {
       const fd = new FormData();
       Object.entries(form).forEach(([k, v]) => fd.append(k, String(v)));
       fd.append('consent', 'true');
+      fd.append('screening', JSON.stringify(answers));
       const params = new URLSearchParams(window.location.search);
       fd.append('source', params.get('utm_source') ?? params.get('origem') ?? 'site');
+      const ref = params.get('ref');
+      if (ref) fd.append('ref', ref);
       fd.append('resume', file);
       const res = await api.upload<{ assessmentUrl: string | null }>(`/public/jobs/${slug}/apply`, fd);
       if (res.assessmentUrl) {
@@ -142,6 +200,14 @@ export default function JobPublic() {
                     <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
                   </label>
                 </Field>
+                {(job.screeningQuestions ?? []).length > 0 && (
+                  <fieldset className="space-y-2">
+                    <legend className="mb-1.5 text-[13px] font-medium text-ink-700">Sobre a vaga</legend>
+                    {(job.screeningQuestions ?? []).map((q) => (
+                      <ScreeningField key={q.id} q={q} value={answers[q.id]} onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))} />
+                    ))}
+                  </fieldset>
+                )}
                 <Field label="Por que você? (opcional)">
                   <Textarea value={form.coverLetter} onChange={set('coverLetter')} rows={3} />
                 </Field>

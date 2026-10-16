@@ -2,9 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma, userLite } from '../../lib/prisma';
-import { authenticate, canSeeUser, isHR, requireRole, visibleUserIds, type AuthUser } from '../../lib/auth';
+import { authenticate, canSeeUser, requireRole, visibleUserIds } from '../../lib/auth';
 import { badRequest, forbidden, notFound, parse, unauthorized } from '../../lib/http';
-import { notify } from '../../lib/notify';
 import { addDays, brDateKey, dateOnly } from '../../lib/dates';
 import { env } from '../../env';
 import { mapPunch, type ExternalPunch } from './providers';
@@ -22,26 +21,17 @@ function resolveRange(q: { from?: string; to?: string }, defaultDays = 30) {
 }
 
 /** Totais de um conjunto de dias */
-function summarize(days: { workedMinutes: number; expectedMinutes: number; balanceMinutes: number; lateMinutes: number; status: string; validation: string; adjustedWorkedMinutes: number | null }[]) {
+function summarize(days: { workedMinutes: number; expectedMinutes: number; balanceMinutes: number; lateMinutes: number; status: string }[]) {
   return {
     days: days.length,
-    workedMinutes: days.reduce((a, d) => a + (d.adjustedWorkedMinutes ?? d.workedMinutes), 0),
-    expectedMinutes: days.reduce((a, d) => a + d.expectedMinutes, 0),
-    balanceMinutes: days.reduce((a, d) => a + (d.adjustedWorkedMinutes != null ? d.adjustedWorkedMinutes - d.expectedMinutes : d.balanceMinutes), 0),
+    workedMinutes: days.reduce((acc, d) => acc + d.workedMinutes, 0),
+    expectedMinutes: days.reduce((acc, d) => acc + d.expectedMinutes, 0),
+    balanceMinutes: days.reduce((acc, d) => acc + d.balanceMinutes, 0),
     lateCount: days.filter((d) => d.status === 'LATE').length,
-    lateMinutes: days.reduce((a, d) => a + d.lateMinutes, 0),
+    lateMinutes: days.reduce((acc, d) => acc + d.lateMinutes, 0),
     absentCount: days.filter((d) => d.status === 'ABSENT').length,
     incompleteCount: days.filter((d) => d.status === 'INCOMPLETE').length,
-    pendingValidation: days.filter((d) => d.validation === 'PENDING' && d.status !== 'OFF').length,
-    contested: days.filter((d) => d.validation === 'CONTESTED').length,
   };
-}
-
-/** Quem pode revisar o dia de alguém: RH/admin ou gestor na hierarquia acima */
-async function canReview(reviewer: AuthUser, userId: string) {
-  if (reviewer.role === 'ADMIN' || reviewer.role === 'HR') return true;
-  if (reviewer.role !== 'MANAGER' || reviewer.id === userId) return false;
-  return canSeeUser(reviewer, userId);
 }
 
 export async function pontoRoutes(app: FastifyInstance) {
@@ -66,7 +56,6 @@ export async function pontoRoutes(app: FastifyInstance) {
       const days = await prisma.timeDay.findMany({
         where: { userId: req.auth.id, date: { gte: fromDate, lte: toDate } },
         orderBy: { date: 'desc' },
-        include: { reviewer: { select: userLite } },
       });
       const entries = await prisma.timeEntry.findMany({
         where: { userId: req.auth.id, at: { gte: dayBounds(from).start, lt: dayBounds(to).end } },
@@ -100,13 +89,12 @@ export async function pontoRoutes(app: FastifyInstance) {
       };
     });
 
-    /** Dias consolidados do time (com filtros) — para gestor/RH validar */
+    /** Dias consolidados do time (com filtros) — somente leitura, vindos da API de ponto */
     r.get('/days', async (req) => {
       const q = parse(
         range.extend({
           userId: z.string().optional(),
           status: z.string().optional(),
-          validation: z.string().optional(),
         }),
         req.query,
       );
@@ -117,12 +105,11 @@ export async function pontoRoutes(app: FastifyInstance) {
         date: { gte: fromDate, lte: toDate },
         userId: q.userId ?? (scope ? { in: scope } : undefined),
         ...(q.status ? { status: { in: q.status.split(',') as never } } : {}),
-        ...(q.validation ? { validation: { in: q.validation.split(',') as never } } : {}),
       };
       const days = await prisma.timeDay.findMany({
         where,
         orderBy: [{ date: 'desc' }, { user: { name: 'asc' } }],
-        include: { user: { select: userLite }, reviewer: { select: userLite } },
+        include: { user: { select: userLite } },
         take: 1000,
       });
       return { summary: summarize(days), days };
@@ -155,100 +142,6 @@ export async function pontoRoutes(app: FastifyInstance) {
       return prisma.timeEntry.findMany({ where: { userId: day.userId, at: { gte: start, lt: end } }, orderBy: { at: 'asc' } });
     });
 
-    // ─── Validação ───
-
-    /** Colaborador confirma que o dia está correto */
-    r.post('/days/:id/confirm', async (req) => {
-      const { id } = req.params as { id: string };
-      const day = await prisma.timeDay.findUnique({ where: { id } });
-      if (!day || day.userId !== req.auth.id) throw notFound();
-      if (day.validation === 'APPROVED' || day.validation === 'ADJUSTED') throw badRequest('Dia já fechado pelo gestor');
-      return prisma.timeDay.update({ where: { id }, data: { validation: 'CONFIRMED', confirmedAt: new Date(), employeeNote: null } });
-    });
-
-    /** Confirma todos os dias pendentes de uma vez */
-    r.post('/confirm-all', async (req) => {
-      const res = await prisma.timeDay.updateMany({
-        where: { userId: req.auth.id, validation: 'PENDING', date: { lt: dateOnly(brDateKey()) }, status: { in: ['OK', 'OFF'] } },
-        data: { validation: 'CONFIRMED', confirmedAt: new Date() },
-      });
-      return { confirmed: res.count };
-    });
-
-    /** Colaborador contesta (ex.: "esqueci de bater a saída, saí às 18h") */
-    r.post('/days/:id/contest', async (req) => {
-      const { id } = req.params as { id: string };
-      const { note } = parse(z.object({ note: z.string().min(5, 'Explique o que aconteceu').max(1000) }), req.body);
-      const day = await prisma.timeDay.findUnique({ where: { id }, include: { user: { select: { managerId: true, name: true } } } });
-      if (!day || day.userId !== req.auth.id) throw notFound();
-      if (day.validation === 'APPROVED' || day.validation === 'ADJUSTED') throw badRequest('Dia já fechado pelo gestor');
-      const updated = await prisma.timeDay.update({ where: { id }, data: { validation: 'CONTESTED', employeeNote: note } });
-      const reviewers = day.user.managerId
-        ? [day.user.managerId]
-        : (await prisma.user.findMany({ where: { role: { in: ['ADMIN', 'HR'] }, active: true }, select: { id: true } })).map((u) => u.id);
-      await notify(reviewers, {
-        type: 'ponto.contested',
-        title: `${day.user.name} contestou o ponto`,
-        body: `${day.date.toISOString().slice(0, 10).split('-').reverse().join('/')}: ${note.slice(0, 120)}`,
-        link: '/admin/ponto?validation=CONTESTED',
-      });
-      return updated;
-    });
-
-    /** Gestor/RH aprova ou ajusta */
-    r.post('/days/:id/review', async (req) => {
-      const { id } = req.params as { id: string };
-      const body = parse(
-        z.object({
-          action: z.enum(['APPROVE', 'ADJUST', 'REOPEN']),
-          adjustedWorkedMinutes: z.number().int().min(0).max(24 * 60).optional(),
-          note: z.string().max(1000).optional(),
-        }),
-        req.body,
-      );
-      const day = await prisma.timeDay.findUnique({ where: { id } });
-      if (!day) throw notFound();
-      if (!(await canReview(req.auth, day.userId))) throw forbidden('Só o gestor da pessoa ou o RH podem revisar');
-      if (body.action === 'ADJUST' && body.adjustedWorkedMinutes === undefined) throw badRequest('Informe as horas ajustadas');
-
-      const updated = await prisma.timeDay.update({
-        where: { id },
-        data:
-          body.action === 'REOPEN'
-            ? { validation: 'PENDING', reviewerId: null, reviewedAt: null, reviewNote: null, adjustedWorkedMinutes: null }
-            : {
-                validation: body.action === 'APPROVE' ? 'APPROVED' : 'ADJUSTED',
-                reviewerId: req.auth.id,
-                reviewedAt: new Date(),
-                reviewNote: body.note,
-                adjustedWorkedMinutes: body.action === 'ADJUST' ? body.adjustedWorkedMinutes : null,
-              },
-      });
-      if (body.action !== 'REOPEN' && day.userId !== req.auth.id) {
-        await notify([day.userId], {
-          type: 'ponto.reviewed',
-          title: body.action === 'APPROVE' ? 'Seu ponto foi aprovado ✅' : 'Seu ponto foi ajustado pelo gestor',
-          body: body.note ?? undefined,
-          link: '/ponto',
-        });
-      }
-      if (body.action === 'REOPEN') await computeDay(day.userId, day.date.toISOString().slice(0, 10));
-      return updated;
-    });
-
-    /** Aprova em lote os dias confirmados pelos colaboradores */
-    r.post('/approve-confirmed', async (req) => {
-      const { ids } = parse(z.object({ ids: z.array(z.string()).min(1) }), req.body);
-      const days = await prisma.timeDay.findMany({ where: { id: { in: ids }, validation: 'CONFIRMED' } });
-      let approved = 0;
-      for (const d of days) {
-        if (!(await canReview(req.auth, d.userId))) continue;
-        await prisma.timeDay.update({ where: { id: d.id }, data: { validation: 'APPROVED', reviewerId: req.auth.id, reviewedAt: new Date() } });
-        approved++;
-      }
-      return { approved };
-    });
-
     // ─── Integração (RH/admin) ───
     r.post('/sync', { preHandler: requireRole('ADMIN', 'HR') }, async (req) => {
       const q = parse(range, req.body ?? {});
@@ -260,17 +153,5 @@ export async function pontoRoutes(app: FastifyInstance) {
     r.get('/sync/logs', { preHandler: requireRole('ADMIN', 'HR') }, async () =>
       prisma.pontoSyncLog.findMany({ orderBy: { startedAt: 'desc' }, take: 30 }),
     );
-
-    /** Lançamento manual de batida (RH) — ex.: relógio quebrado */
-    r.post('/entries', async (req) => {
-      if (!isHR(req.auth)) throw forbidden();
-      const body = parse(
-        z.object({ userId: z.string(), at: z.coerce.date(), type: z.enum(['IN', 'BREAK_START', 'BREAK_END', 'OUT']), note: z.string().max(300).optional() }),
-        req.body,
-      );
-      const entry = await prisma.timeEntry.create({ data: { ...body, source: 'manual', note: body.note ?? `Lançado por ${req.auth.name}` } });
-      await computeDay(body.userId, brDateKey(body.at));
-      return entry;
-    });
   });
 }

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { daysUntil, goalElapsed, goalProgress, licenseState } from '@dumax/shared';
 import { prisma, userLite } from '../lib/prisma';
 import { authenticate, getSubordinateIds, isHR } from '../lib/auth';
-import { brDateKey, dateOnly } from '../lib/dates';
+import { brDateKey } from '../lib/dates';
 import { dayBounds } from './ponto/service';
 import { buildFlags, computePerformance } from './performance/engine';
 
@@ -20,7 +20,7 @@ export async function inboxRoutes(app: FastifyInstance) {
     const { start: dayStart, end: dayEnd } = dayBounds(todayKey);
     const open = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW'] as const;
 
-    const [tasks, docs, pontoPending, survey, licenses, goals, running, meetings] = await Promise.all([
+    const [tasks, docs, survey, licenses, goals, running, meetings] = await Promise.all([
       prisma.task.findMany({
         where: { assigneeId: me.id, status: { in: [...open] } },
         select: { id: true, title: true, dueAt: true, priority: true, status: true, createdBy: { select: userLite } },
@@ -30,7 +30,6 @@ export async function inboxRoutes(app: FastifyInstance) {
         where: { userId: me.id, status: 'PENDING', document: { status: 'PENDING' } },
         select: { token: true, document: { select: { id: true, title: true, dueAt: true, createdBy: { select: { name: true } } } } },
       }),
-      prisma.timeDay.count({ where: { userId: me.id, validation: 'PENDING', status: { not: 'OFF' }, date: { lt: dateOnly(todayKey) } } }),
       prisma.pulseSurvey.findFirst({ where: { status: 'OPEN' }, orderBy: { weekStart: 'desc' }, include: { responses: { where: { userId: me.id }, select: { id: true } } } }),
       prisma.license.findMany({ where: { archived: false, OR: [{ responsibleId: me.id }, { backupId: me.id }] }, select: { id: true, name: true, expiresAt: true, alertDays: true } }),
       prisma.goal.findMany({ where: { ownerId: me.id, status: 'ACTIVE' }, select: { id: true, title: true, unit: true, startValue: true, targetValue: true, currentValue: true, higherIsBetter: true, startDate: true, dueDate: true } }),
@@ -51,7 +50,7 @@ export async function inboxRoutes(app: FastifyInstance) {
       .sort((a, b) => a.daysLeft - b.daysLeft);
 
     // Para gestores: quem do time precisa de atenção (últimos 14 dias)
-    let team: { contestedPonto: number; alerts: { user: { id: string; name: string; avatarUrl: string | null }; message: string; severity: string }[] } | null = null;
+    let team: { alerts: { user: { id: string; name: string; avatarUrl: string | null }; message: string; severity: string }[] } | null = null;
     if (me.role !== 'EMPLOYEE') {
       const ids = isHR(me) ? (await prisma.user.findMany({ where: { active: true, id: { not: me.id } }, select: { id: true } })).map((u) => u.id) : await getSubordinateIds(me.id);
       if (ids.length) {
@@ -61,12 +60,75 @@ export async function inboxRoutes(app: FastifyInstance) {
         const alerts = users
           .flatMap((u) => buildFlags(perf.get(u.id)!.metrics, perf.get(u.id)!.score, null).filter((f) => f.severity === 'high').map((f) => ({ user: u, message: f.message, severity: f.severity })))
           .slice(0, 6);
-        const contestedPonto = await prisma.timeDay.count({ where: { userId: { in: ids }, validation: 'CONTESTED' } });
-        team = { contestedPonto, alerts };
+        team = { alerts };
       }
     }
 
+    // Pedidos de prorrogação nas demandas que eu enviei
+    const extensions = await prisma.taskExtensionRequest.findMany({
+      where: { status: 'PENDING', task: { createdById: me.id } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, requestedDueAt: true, reason: true, requester: { select: { id: true, name: true, avatarUrl: true } }, task: { select: { id: true, title: true } } },
+    });
+
+    // Entregas esperando minha aprovação (demandas que eu enviei)
+    const reviews = await prisma.task.findMany({
+      where: { status: 'IN_REVIEW', createdById: me.id, assigneeId: { not: me.id } },
+      orderBy: { updatedAt: 'asc' },
+      select: { id: true, title: true, assignee: { select: { id: true, name: true, avatarUrl: true } } },
+    });
+
+    // Aniversários e tempo de casa nos próximos 7 dias (como no HiBob)
+    const people = await prisma.user.findMany({
+      where: { active: true },
+      select: { id: true, name: true, avatarUrl: true, jobTitle: true, birthday: true, hiredAt: true },
+    });
+    const [ty, tm, td] = todayKey.split('-').map(Number);
+    const today = Date.UTC(ty, tm - 1, td);
+    const daysUntilDay = (d: Date) => {
+      let next = Date.UTC(ty, d.getUTCMonth(), d.getUTCDate());
+      if (next < today) next = Date.UTC(ty + 1, d.getUTCMonth(), d.getUTCDate());
+      return Math.round((next - today) / 86400000);
+    };
+    const celebrations = people
+      .flatMap((u) => {
+        const out: { user: { id: string; name: string; avatarUrl: string | null; jobTitle: string | null }; kind: 'BIRTHDAY' | 'ANNIVERSARY'; inDays: number; years?: number }[] = [];
+        const user = { id: u.id, name: u.name, avatarUrl: u.avatarUrl, jobTitle: u.jobTitle };
+        if (u.birthday) {
+          const inDays = daysUntilDay(u.birthday);
+          if (inDays <= 7) out.push({ user, kind: 'BIRTHDAY', inDays });
+        }
+        if (u.hiredAt) {
+          const inDays = daysUntilDay(u.hiredAt);
+          const years = ty - u.hiredAt.getUTCFullYear() + (Date.UTC(ty, u.hiredAt.getUTCMonth(), u.hiredAt.getUTCDate()) < today ? 1 : 0);
+          if (inDays <= 7 && years >= 1) out.push({ user, kind: 'ANNIVERSARY', inDays, years });
+        }
+        return out;
+      })
+      .sort((a, b) => a.inDays - b.inDays)
+      .slice(0, 8);
+
+    // Comunicados de leitura obrigatória que eu ainda não confirmei
+    const mustRead = await prisma.announcement.findMany({
+      where: { requiresAck: true, reads: { none: { userId: me.id } } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, title: true, createdAt: true },
+    });
+
+    // Itens de ação de 1:1 sob minha responsabilidade
+    const oneOnOneActions = await prisma.oneOnOneItem.findMany({
+      where: { kind: 'ACTION', done: false, ownerId: me.id },
+      orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }],
+      take: 5,
+      select: { id: true, text: true, dueAt: true, oneOnOne: { select: { managerId: true, reportId: true } } },
+    });
+
     return {
+      mustRead,
+      oneOnOneActions: oneOnOneActions.map((a) => ({ id: a.id, text: a.text, dueAt: a.dueAt, withUserId: a.oneOnOne.managerId === me.id ? a.oneOnOne.reportId : a.oneOnOne.managerId })),
+      reviews,
+      celebrations,
+      extensionRequests: extensions,
       tasks: {
         open: tasks.length,
         overdue: tasks.filter((t) => t.dueAt && t.dueAt < now).length,
@@ -74,7 +136,6 @@ export async function inboxRoutes(app: FastifyInstance) {
         top: tasks.slice(0, 6),
       },
       documentsToSign: docs.map((d) => ({ ...d.document, from: d.document.createdBy.name, token: d.token })),
-      pontoToValidate: pontoPending,
       pulse: survey ? { id: survey.id, question: survey.question, answered: survey.responses.length > 0 } : null,
       licenses: lic,
       goals: goals.map((g) => ({ ...g, progress: goalProgress(g), elapsed: goalElapsed(g) })),

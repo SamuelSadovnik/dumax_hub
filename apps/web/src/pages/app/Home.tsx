@@ -1,15 +1,14 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowUpRight, CalendarDays, CheckCircle2, FileSignature, Fingerprint, ShieldAlert, Smile, Target, Video } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BookOpenCheck, CalendarClock, Handshake, CalendarDays, Camera, CheckCircle2, FileSignature, Heart, ListChecks, MessageCircle, ShieldAlert, Smile, Target, Video } from 'lucide-react';
 import { FLAG_COLOR, LICENSE_STATE_COLOR, TASK_PRIORITY_COLOR, formatGoalValue, type FlagSeverity } from '@dumax/shared';
 import { api } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import type { Announcement, Inbox } from '@/lib/types';
-import { dueLabel, fmtTime, fmtWeekday, fromNow } from '@/lib/format';
+import { dueLabel, fmtDateShort, fmtTime, fmtWeekday, fromNow } from '@/lib/format';
 import { Avatar, Badge, Panel, PageLoader, ProgressBar, StatCard } from '@/components/ui';
-import { TaskTimerButton, useElapsed, useTimer } from '@/components/Timer';
 
 function greeting() {
   const h = new Date().getHours();
@@ -25,35 +24,69 @@ interface Pending {
   cta: string;
 }
 
-function RunningTimerBar() {
-  const { running, stop } = useTimer();
-  const elapsed = useElapsed(running?.startedAt);
-  if (!running) return null;
-  return (
-    <div className="mb-5 flex items-center gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5">
-      <span className="relative flex h-2.5 w-2.5">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-400 opacity-60" />
-        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand-500" />
-      </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-ink-700">
-        Registrando tempo em <strong className="font-semibold text-ink-900">{running.task?.title ?? running.description ?? 'atividade'}</strong>
-      </span>
-      <span className="num text-sm font-semibold text-brand-700">{elapsed}</span>
-      <button onClick={() => stop.mutate()} className="rounded-md bg-white px-2.5 py-1 text-[13px] font-medium text-ink-700 shadow-sm hover:bg-ink-50">
-        Parar
-      </button>
-    </div>
-  );
-}
 
 export default function Home() {
   const me = useMe();
+  const navigate = useNavigate();
+  const congratulate = async (userId: string) => {
+    const conv = await api.post<{ id: string }>('/chat/direct', { userId });
+    navigate(`/chat?c=${conv.id}`);
+  };
   const { data: inbox, isLoading } = useQuery({ queryKey: ['inbox'], queryFn: () => api.get<Inbox>('/inbox'), refetchInterval: 60_000 });
   const { data: announcements } = useQuery({ queryKey: ['announcements'], queryFn: () => api.get<Announcement[]>('/feed/announcements') });
 
   if (isLoading || !inbox) return <PageLoader />;
 
   const pending: Pending[] = [
+    ...(inbox.mustRead ?? []).map((a) => ({
+      key: `read-${a.id}`,
+      icon: <BookOpenCheck />,
+      tone: 'warn' as const,
+      text: (
+        <>
+          Leitura obrigatória: <strong className="font-medium text-ink-900">{a.title}</strong>
+        </>
+      ),
+      to: '/mural',
+      cta: 'Ler',
+    })),
+    ...inbox.reviews.map((r) => ({
+      key: `rev-${r.id}`,
+      icon: <CheckCircle2 />,
+      tone: 'brand' as const,
+      text: (
+        <>
+          <strong className="font-medium text-ink-900">{r.assignee.name.split(' ')[0]}</strong> entregou <strong className="font-medium text-ink-900">{r.title}</strong>
+        </>
+      ),
+      to: `/demandas?task=${r.id}`,
+      cta: 'Aprovar',
+    })),
+    ...inbox.extensionRequests.map((r) => ({
+      key: `ext-${r.id}`,
+      icon: <CalendarClock />,
+      tone: 'warn' as const,
+      text: (
+        <>
+          <strong className="font-medium text-ink-900">{r.requester.name.split(' ')[0]}</strong> pediu mais prazo em <strong className="font-medium text-ink-900">{r.task.title}</strong>, até {fmtDateShort(r.requestedDueAt)}
+        </>
+      ),
+      to: `/demandas?task=${r.task.id}`,
+      cta: 'Responder',
+    })),
+    ...(inbox.oneOnOneActions ?? []).map((a) => ({
+      key: `oo-${a.id}`,
+      icon: <Handshake />,
+      tone: (a.dueAt && new Date(a.dueAt) < new Date() ? 'bad' : 'brand') as 'bad' | 'brand',
+      text: (
+        <>
+          Combinado do 1:1: <strong className="font-medium text-ink-900">{a.text}</strong>
+          {a.dueAt && <> · até {fmtDateShort(a.dueAt)}</>}
+        </>
+      ),
+      to: `/1-1?com=${a.withUserId}`,
+      cta: 'Abrir',
+    })),
     ...inbox.documentsToSign.map((d) => ({
       key: `doc-${d.id}`,
       icon: <FileSignature />,
@@ -81,34 +114,54 @@ export default function Home() {
       to: `/licencas?id=${l.id}`,
       cta: 'Renovar',
     })),
-    ...(inbox.pontoToValidate
-      ? [{ key: 'ponto', icon: <Fingerprint />, tone: 'warn' as const, text: <>{inbox.pontoToValidate} dia(s) de ponto para conferir e confirmar</>, to: '/ponto', cta: 'Conferir' }]
+    ...(!me.avatarUrl
+      ? [{ key: 'photo', icon: <Camera />, tone: 'brand' as const, text: <>Adicione sua foto de perfil para o time te reconhecer no chat e no organograma</>, to: '/perfil', cta: 'Adicionar' }]
       : []),
     ...(inbox.pulse && !inbox.pulse.answered
       ? [{ key: 'pulse', icon: <Smile />, tone: 'brand' as const, text: <>Pulse da semana: {inbox.pulse.question}</>, to: '/clima', cta: 'Responder' }]
-      : []),
-    ...(inbox.team?.contestedPonto
-      ? [{ key: 'contest', icon: <Fingerprint />, tone: 'bad' as const, text: <>{inbox.team.contestedPonto} contestação(ões) de ponto do seu time</>, to: '/admin/ponto?validation=CONTESTED', cta: 'Revisar' }]
       : []),
   ];
   const toneCls = { bad: 'bg-bad-soft text-bad', warn: 'bg-warn-soft text-warn', brand: 'bg-brand-50 text-brand-600' };
 
   return (
     <div>
-      <div className="mb-5">
-        <p className="text-sm capitalize text-ink-500">{fmtWeekday(new Date())}</p>
-        <h1 className="text-[22px] font-semibold">
-          {greeting()}, {me.name.split(' ')[0]}
-        </h1>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm capitalize text-ink-500">{fmtWeekday(new Date())}</p>
+          <h1 className="text-[30px] font-bold leading-tight">
+            {greeting()}, {me.name.split(' ')[0]}
+          </h1>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ['/demandas', 'Demandas', <ListChecks key="d" />],
+              ['/chat', 'Chat', <MessageCircle key="c" />],
+              ['/agenda', 'Agenda', <CalendarDays key="a" />],
+              ['/mural', 'Elogiar alguém', <Heart key="m" />],
+            ] as const
+          ).map(([to, label, icon]) => (
+            <Link key={to} to={to} className="inline-flex h-9 items-center gap-2 rounded-lg border border-ink-200 bg-white px-3 text-sm font-medium text-ink-700 transition hover:border-brand-300 hover:text-brand-700 [&>svg]:h-4 [&>svg]:w-4 [&>svg]:text-ink-400">
+              {icon}
+              {label}
+            </Link>
+          ))}
+        </div>
       </div>
 
-      <RunningTimerBar />
-
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Demandas abertas" value={inbox.tasks.open} />
-        <StatCard label="Atrasadas" value={inbox.tasks.overdue} tone={inbox.tasks.overdue ? 'danger' : 'default'} />
-        <StatCard label="Vencem hoje" value={inbox.tasks.dueToday} tone={inbox.tasks.dueToday ? 'warn' : 'default'} />
-        <StatCard label="Reuniões hoje" value={inbox.meetingsToday.length} />
+        {(
+          [
+            ['/demandas', 'Demandas abertas', inbox.tasks.open, 'default'],
+            ['/demandas', 'Atrasadas', inbox.tasks.overdue, inbox.tasks.overdue ? 'danger' : 'default'],
+            ['/demandas', 'Vencem hoje', inbox.tasks.dueToday, inbox.tasks.dueToday ? 'warn' : 'default'],
+            ['/agenda', 'Reuniões hoje', inbox.meetingsToday.length, 'default'],
+          ] as const
+        ).map(([to, label, value, tone]) => (
+          <Link key={label} to={to} className="rounded-2xl transition hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand-400">
+            <StatCard label={label} value={value} tone={tone} />
+          </Link>
+        ))}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -153,7 +206,6 @@ export default function Home() {
                         <span className="block text-xs text-ink-500">de {t.createdBy.name}</span>
                       </Link>
                       {due && <Badge tone={due.tone === 'danger' ? 'bad' : due.tone === 'warn' ? 'warn' : 'neutral'}>{due.text}</Badge>}
-                      <TaskTimerButton taskId={t.id} compact />
                     </li>
                   );
                 })}
@@ -190,6 +242,28 @@ export default function Home() {
         </div>
 
         <aside className="space-y-6">
+          {inbox.celebrations.length > 0 && (
+            <Panel title="Celebrações" subtitle="Aniversários e tempo de casa da semana">
+              <ul className="divide-y divide-ink-100">
+                {inbox.celebrations.map((c) => (
+                  <li key={`${c.kind}-${c.user.id}`} className="flex items-center gap-3 px-4 py-2.5">
+                    <Avatar user={c.user} size={34} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{c.user.id === me.id ? 'Você' : c.user.name}</span>
+                      <span className="block text-xs text-ink-500">
+                        {c.kind === 'BIRTHDAY' ? '🎂 Aniversário' : `🎉 ${c.years} ${c.years === 1 ? 'ano' : 'anos'} de casa`} {c.inDays === 0 ? 'hoje' : c.inDays === 1 ? 'amanhã' : `em ${c.inDays} dias`}
+                      </span>
+                    </span>
+                    {c.user.id !== me.id && (
+                      <button onClick={() => congratulate(c.user.id)} className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50">
+                        Parabenizar
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
           <Panel title="Hoje" actions={<CalendarDays className="h-4 w-4 text-ink-400" />}>
             {inbox.meetingsToday.length ? (
               <ul className="px-4 py-2">

@@ -5,13 +5,14 @@ import clsx from 'clsx';
 import { toast } from 'sonner';
 import { ArrowLeft, Check, Copy, FileText, Linkedin, Mail, MapPin, MessageCircle, Phone, Send, Sparkles, X } from 'lucide-react';
 import { Legend, PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from 'recharts';
-import { PROFILES, PROFILE_KEYS, STAGES, STAGE_COLOR, STAGE_LABEL, type Stage } from '@dumax/shared';
+import { PROFILES, PROFILE_KEYS, STAGES, STAGE_COLOR, STAGE_LABEL, screeningAnswerText, screeningRule, type Stage } from '@dumax/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import type { ApplicationDetail, FitAnalysis } from '@/lib/types';
+import type { AiReading, ApplicationDetail, FitAnalysis } from '@/lib/types';
 import { fmtDateTime, fromNow } from '@/lib/format';
 import { Avatar, Badge, Button, Checkbox, Field, Input, Modal, PageLoader, Panel, ScoreRing, Select, Stars, Tabs, Textarea } from '@/components/ui';
 import { SOURCE_LABEL } from './Jobs';
+import { ScorecardPanel } from './ScorecardPanel';
 
 const TEMPLATES = [
   { label: 'Convite para entrevista', text: 'Olá, {nome}! Tudo bem? Gostamos muito do seu perfil para a vaga de {vaga}. Podemos agendar uma entrevista? Quais horários você tem disponíveis esta semana?' },
@@ -140,6 +141,57 @@ function FitPanel({ a, analysis }: { a: ApplicationDetail; analysis: FitAnalysis
   );
 }
 
+/** Leitura automática do teste feita pela IA logo que o candidato conclui */
+function AiReadingPanel({ ai }: { ai: AiReading }) {
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-brand-500" /> Leitura do assistente
+        </span>
+      }
+      subtitle={`Gerada automaticamente ${fromNow(ai.generatedAt)}`}
+    >
+      <div className="space-y-4 px-5 py-4 text-sm">
+        <p className="leading-relaxed text-ink-700">{ai.summary}</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-ink-500">Pontos fortes</p>
+            <ul className="space-y-1">
+              {ai.strengths.map((s) => (
+                <li key={s} className="flex gap-2">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-ok" /> {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-ink-500">Pontos de atenção</p>
+            <ul className="space-y-1">
+              {ai.risks.map((s) => (
+                <li key={s} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-warn" /> {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        {ai.questions.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-ink-500">Perguntas sugeridas para a entrevista</p>
+            <ol className="list-decimal space-y-1 pl-5">
+              {ai.questions.map((q) => (
+                <li key={q}>{q}</li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </div>
+      <p className="border-t border-ink-100 px-5 py-2.5 text-2xs text-ink-400">Texto gerado por IA a partir do teste. Use como apoio, nunca como decisão.</p>
+    </Panel>
+  );
+}
+
 export default function ApplicationPage() {
   const { id } = useParams();
   const qc = useQueryClient();
@@ -238,6 +290,11 @@ export default function ApplicationPage() {
             <span className="text-xs text-ink-500">
               Candidatou-se {fromNow(a.createdAt)} via {SOURCE_LABEL[a.source ?? 'site'] ?? a.source}
             </span>
+            {a.referredBy && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 py-0.5 pl-0.5 pr-2.5 text-xs font-medium text-brand-700">
+                <Avatar user={a.referredBy} size={18} /> Indicado por {a.referredBy.name.split(' ')[0]}
+              </span>
+            )}
           </div>
         </div>
         {isHR && (
@@ -266,6 +323,8 @@ export default function ApplicationPage() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-5">
+          {['SCREENING', 'INTERVIEW', 'OFFER', 'HIRED'].includes(a.stage) || a.scorecards?.length ? <ScorecardPanel a={a} /> : null}
+          {done?.result?.ai && <AiReadingPanel ai={done.result.ai} />}
           {done?.result && a.analysis ? (
             <FitPanel a={a} analysis={a.analysis} />
           ) : (
@@ -330,6 +389,24 @@ export default function ApplicationPage() {
         </div>
 
         <div className="space-y-5">
+          {(a.screeningAnswers ?? []).length > 0 && (
+            <Panel title="Perguntas da vaga" subtitle={(a.screeningAnswers ?? []).every((x) => x.passed) ? 'Atende a todas' : 'Não atende a alguma pergunta'}>
+              <ul className="divide-y divide-ink-100">
+                {(a.screeningAnswers ?? []).map((x) => (
+                  <li key={x.id} className="flex items-start gap-2.5 px-4 py-2.5 text-sm">
+                    {x.passed ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-ok" /> : <X className={clsx('mt-0.5 h-4 w-4 shrink-0', x.mode === 'ELIMINATE' ? 'text-bad' : 'text-warn')} />}
+                    <span className="min-w-0 flex-1">
+                      {x.text}
+                      <span className="block text-xs text-ink-500">
+                        Respondeu <span className="font-medium text-ink-700">{screeningAnswerText(x, x.answer)}</span>
+                        {!x.passed && ` · ${screeningRule(x).toLowerCase()}${x.mode === 'ELIMINATE' ? ' (eliminatória)' : ''}`}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
           {isHR && (
             <Panel title="Etapa">
               <div className="space-y-3 p-4">

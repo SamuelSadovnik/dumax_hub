@@ -4,12 +4,13 @@ import clsx from 'clsx';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { KeyRound, Pencil, Plus, Search, UserX } from 'lucide-react';
-import { PROFILES, ROLES, ROLE_LABEL, type ProfileKey, type Role } from '@dumax/shared';
+import { PROFILES, ROLES, ROLE_LABEL, type ProfileKey, type Role, LEVELS, LEVEL_LABEL } from '@dumax/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useMe } from '@/lib/auth';
 import type { Department, DirectoryUser, UserDetail } from '@/lib/types';
 import { fromNow } from '@/lib/format';
 import { Avatar, Badge, Button, Checkbox, Field, Input, Modal, PageHeader, PageLoader, Select, UserPicker } from '@/components/ui';
+import { AvatarUpload } from '@/components/AvatarUpload';
 
 const WEEKDAYS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 
@@ -30,6 +31,7 @@ function PersonForm({ existing, users, depts, meRole, onClose, onSaved }: { exis
     email: existing?.email ?? '',
     role: existing?.role ?? ('EMPLOYEE' as Role),
     jobTitle: existing?.jobTitle ?? '',
+    level: existing?.level ?? '',
     phone: existing?.phone ?? '',
     managerId: existing?.managerId ?? null,
     departmentId: existing?.departmentId ?? '',
@@ -44,6 +46,7 @@ function PersonForm({ existing, users, depts, meRole, onClose, onSaved }: { exis
       const body = {
         ...f,
         jobTitle: f.jobTitle || null,
+        level: f.level || null,
         phone: f.phone || null,
         departmentId: f.departmentId || null,
         pontoCode: f.pontoCode || null,
@@ -94,6 +97,11 @@ function PersonForm({ existing, users, depts, meRole, onClose, onSaved }: { exis
         </>
       }
     >
+      {existing && (
+        <div className="mb-5 border-b border-ink-100 pb-5">
+          <AvatarUpload user={existing} endpoint={`/users/${existing.id}/avatar`} size={72} onChange={onSaved} />
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Nome">
           <Input value={f.name} onChange={set('name')} />
@@ -103,6 +111,16 @@ function PersonForm({ existing, users, depts, meRole, onClose, onSaved }: { exis
         </Field>
         <Field label="Cargo">
           <Input value={f.jobTitle} onChange={set('jobTitle')} />
+        </Field>
+        <Field label="Nível" hint="Aparece no organograma">
+          <Select value={f.level} onChange={set('level')}>
+            <option value="">Definir pelo cargo</option>
+            {LEVELS.map((l) => (
+              <option key={l} value={l}>
+                {LEVEL_LABEL[l]}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label="Perfil de acesso">
           <Select value={f.role} onChange={set('role')}>

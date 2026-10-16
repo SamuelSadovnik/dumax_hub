@@ -28,6 +28,9 @@ const Profile = lazy(() => import('./pages/app/Profile'));
 const Licenses = lazy(() => import('./pages/app/Licenses'));
 const MyProfileTest = lazy(() => import('./pages/app/ProfileTest'));
 const ProfileMap = lazy(() => import('./pages/app/ProfileMap'));
+const OneOnOnes = lazy(() => import('./pages/app/OneOnOnes'));
+const Development = lazy(() => import('./pages/app/Development'));
+const Referrals = lazy(() => import('./pages/app/Referrals'));
 // ── Portal admin
 const Performance = lazy(() => import('./pages/admin/Performance'));
 const PersonPerformance = lazy(() => import('./pages/admin/PersonPerformance'));
@@ -35,6 +38,7 @@ const PontoAdmin = lazy(() => import('./pages/admin/PontoAdmin'));
 const Jobs = lazy(() => import('./pages/admin/Jobs'));
 const Pipeline = lazy(() => import('./pages/admin/Pipeline'));
 const ApplicationPage = lazy(() => import('./pages/admin/ApplicationPage'));
+const TalentPool = lazy(() => import('./pages/admin/TalentPool'));
 const PulseReport = lazy(() => import('./pages/admin/PulseReport'));
 const People = lazy(() => import('./pages/admin/People'));
 const Structure = lazy(() => import('./pages/admin/Structure'));
@@ -99,6 +103,9 @@ export function App() {
           <Route path="/organograma" element={<OrgChart />} />
           <Route path="/perfil" element={<Profile />} />
           <Route path="/licencas" element={<Licenses />} />
+          <Route path="/1-1" element={<OneOnOnes />} />
+          <Route path="/pdi" element={<Development />} />
+          <Route path="/indicar" element={<Referrals />} />
         </Route>
 
         {/* Portal admin */}
@@ -117,6 +124,9 @@ export function App() {
           <Route path="/admin/recrutamento" element={<Jobs />} />
           <Route path="/admin/recrutamento/vagas/:id" element={<Pipeline />} />
           <Route path="/admin/recrutamento/candidaturas/:id" element={<ApplicationPage />} />
+          <Route path="/admin/talentos" element={<TalentPool />} />
+          <Route path="/admin/1-1" element={<OneOnOnes />} />
+          <Route path="/admin/pdi" element={<Development />} />
           <Route path="/admin/documentos" element={<Documents admin />} />
           <Route path="/admin/documentos/:id" element={<DocumentPage />} />
           <Route path="/admin/licencas" element={<Licenses admin />} />

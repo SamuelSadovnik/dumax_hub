@@ -4,10 +4,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import clsx from 'clsx';
 import { toast } from 'sonner';
-import { AlertTriangle, ArrowRightLeft, CheckSquare, Clock, Columns3, List, MessageSquare, Plus, Search, Send, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, CalendarClock, Check, CheckSquare, ChevronRight, Clock, Columns3, List, Lock, MessageSquare, Plus, Search, Send, Trash2, X } from 'lucide-react';
 import {
   BOARD_STATUSES, TASK_PRIORITIES, TASK_PRIORITY_COLOR, TASK_PRIORITY_LABEL, TASK_STATUSES, TASK_STATUS_COLOR, TASK_STATUS_LABEL,
-  TIMELOG_ACTIVITY_LABEL, formatMinutes, type TaskPriority, type TaskStatus, type TimeLogActivity,
+  type TaskPriority, type TaskStatus,
 } from '@dumax/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth, useMe } from '@/lib/auth';
@@ -16,7 +16,6 @@ import { useSocketEvent } from '@/lib/socket';
 import type { Task, TaskDetail, UserLite } from '@/lib/types';
 import { dueLabel, fmtDateTime, fromNow, isoToLocalInput, localInputToIso } from '@/lib/format';
 import { Avatar, Badge, Button, Drawer, EmptyState, Field, Input, Modal, PageHeader, PageLoader, Select, Tabs, Textarea, UserPicker } from '@/components/ui';
-import { TaskTimerButton } from '@/components/Timer';
 
 type Scope = 'mine' | 'created' | 'team' | 'all';
 
@@ -118,14 +117,33 @@ export function NewTaskModal({ open, onClose, defaultAssignee }: { open: boolean
 }
 
 // ───────────── Detalhe ─────────────
-type TaskDetailFull = TaskDetail & { timeLogs: { id: string; minutes: number; startedAt: string; endedAt: string | null; activity: TimeLogActivity; user: UserLite }[] };
+type ExtensionRequest = {
+  id: string;
+  requestedDueAt: string;
+  previousDueAt: string | null;
+  reason: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  decisionNote: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  requester: UserLite;
+  decidedBy: UserLite | null;
+};
+type TaskDetailFull = Omit<TaskDetail, 'extensionRequests'> & { extensionRequests: ExtensionRequest[] };
 
 const ACTIVITY_TEXT: Record<string, (d: Record<string, unknown> | null, names: (id: string) => string) => string> = {
   CREATED: () => 'criou a demanda',
   ASSIGNED: () => 'atribuiu',
   DELEGATED: (d, n) => `delegou de ${n(String(d?.from))} para ${n(String(d?.to))}`,
   STATUS_CHANGED: (d) => `mudou para "${TASK_STATUS_LABEL[d?.to as TaskStatus] ?? d?.to}"`,
-  UPDATED: () => 'editou a demanda',
+  UPDATED: (d) =>
+    d?.kind === 'EXTENSION_REQUESTED'
+      ? `pediu prorrogação até ${fmtDateTime(String(d.to))}`
+      : d?.kind === 'EXTENSION_APPROVED'
+        ? 'aprovou a prorrogação do prazo'
+        : d?.kind === 'EXTENSION_REJECTED'
+          ? 'recusou a prorrogação do prazo'
+          : 'editou a demanda',
   COMMENTED: () => 'comentou',
 };
 
@@ -139,6 +157,10 @@ function TaskDrawer({ id, onClose }: { id: string | null; onClose: () => void })
   const [delegateTo, setDelegateTo] = useState<string | null>(null);
   const [delegateNote, setDelegateNote] = useState('');
   const [newItem, setNewItem] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [reviewNote, setReviewNote] = useState('');
+  const [askDate, setAskDate] = useState('');
+  const [askReason, setAskReason] = useState('');
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['task', id] });
     qc.invalidateQueries({ queryKey: ['tasks'] });
@@ -178,7 +200,40 @@ function TaskDrawer({ id, onClose }: { id: string | null; onClose: () => void })
     onClose();
   };
 
-  const totalMinutes = task?.timeLogs.reduce((a, l) => a + l.minutes, 0) ?? 0;
+  const askExtension = useMutation({
+    mutationFn: () => api.post(`/tasks/${id}/extension`, { requestedDueAt: localInputToIso(askDate), reason: askReason }),
+    onSuccess: () => {
+      toast.success('Pedido enviado para quem criou a demanda');
+      setAsking(false);
+      setAskDate('');
+      setAskReason('');
+      refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const decide = useMutation({
+    mutationFn: ({ requestId, approve }: { requestId: string; approve: boolean }) => api.post(`/tasks/${id}/extension/${requestId}/decide`, { approve }),
+    onSuccess: (_r, v) => {
+      toast.success(v.approve ? 'Prazo prorrogado' : 'Pedido recusado');
+      refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const reviewTask = useMutation({
+    mutationFn: (approve: boolean) => api.post(`/tasks/${id}/review`, { approve, note: reviewNote.trim() || undefined }),
+    onSuccess: (_r, approve) => {
+      toast.success(approve ? 'Entrega aprovada' : 'Ajustes pedidos');
+      setReviewNote('');
+      refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  // Prazo travado: quem recebeu de outra pessoa só pede prorrogação
+  const dueLocked = Boolean(task && task.assigneeId === me.id && task.createdById !== task.assigneeId);
+  const pendingExt = task?.extensionRequests.find((r) => r.status === 'PENDING') ?? null;
+  const canDecide = Boolean(task && (task.createdById === me.id || me.role === 'ADMIN' || me.role === 'HR'));
 
   return (
     <Drawer open={Boolean(id)} onClose={onClose} width={620}>
@@ -193,7 +248,6 @@ function TaskDrawer({ id, onClose }: { id: string | null; onClose: () => void })
                 Criada por {task.createdBy.name} {fromNow(task.createdAt)}
               </p>
             </div>
-            {task.assigneeId === me.id && <TaskTimerButton taskId={task.id} />}
             {(task.createdById === me.id || me.role === 'ADMIN' || me.role === 'HR') && (
               <Button variant="ghost" size="icon-sm" onClick={remove} title="Excluir">
                 <Trash2 className="h-4 w-4" />
@@ -228,13 +282,27 @@ function TaskDrawer({ id, onClose }: { id: string | null; onClose: () => void })
               </dd>
               <dt className="text-ink-500">Prazo</dt>
               <dd>
-                <Input
-                  key={task.dueAt ?? 'sem-prazo'}
-                  type="datetime-local"
-                  className="w-56"
-                  defaultValue={isoToLocalInput(task.dueAt)}
-                  onBlur={(e) => e.target.value !== isoToLocalInput(task.dueAt) && patch.mutate({ dueAt: e.target.value ? localInputToIso(e.target.value) : null })}
-                />
+                {dueLocked ? (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-ink-50 px-3 text-sm font-medium text-ink-800" title="Definido por quem enviou a demanda">
+                      <Lock className="h-3.5 w-3.5 text-ink-400" />
+                      {task.dueAt ? fmtDateTime(task.dueAt) : 'Sem prazo'}
+                    </span>
+                    {!pendingExt && task.status !== 'DONE' && task.status !== 'CANCELED' && !asking && (
+                      <Button variant="ghost" size="sm" icon={<CalendarClock className="h-3.5 w-3.5" />} onClick={() => setAsking(true)}>
+                        Pedir mais prazo
+                      </Button>
+                    )}
+                  </span>
+                ) : (
+                  <Input
+                    key={task.dueAt ?? 'sem-prazo'}
+                    type="datetime-local"
+                    className="w-56"
+                    defaultValue={isoToLocalInput(task.dueAt)}
+                    onBlur={(e) => e.target.value !== isoToLocalInput(task.dueAt) && patch.mutate({ dueAt: e.target.value ? localInputToIso(e.target.value) : null })}
+                  />
+                )}
               </dd>
               <dt className="text-ink-500">Responsável</dt>
               <dd className="flex items-center gap-2">
@@ -246,9 +314,69 @@ function TaskDrawer({ id, onClose }: { id: string | null; onClose: () => void })
                   </Button>
                 )}
               </dd>
-              <dt className="text-ink-500">Tempo registrado</dt>
-              <dd className="num font-medium">{totalMinutes ? formatMinutes(totalMinutes) : <span className="font-normal text-ink-400">nenhum</span>}</dd>
             </dl>
+
+            {asking && (
+              <div className="space-y-3 rounded-xl border border-ink-200 bg-ink-50 p-4">
+                <p className="text-sm font-medium">Pedir mais prazo para {task.createdBy.name.split(' ')[0]}</p>
+                <Field label="Nova data">
+                  <Input type="datetime-local" value={askDate} onChange={(e) => setAskDate(e.target.value)} className="w-56" />
+                </Field>
+                <Field label="Motivo">
+                  <Textarea rows={2} value={askReason} onChange={(e) => setAskReason(e.target.value)} placeholder="Ex.: o cliente só envia os dados na quinta." />
+                </Field>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setAsking(false)}>
+                    Cancelar
+                  </Button>
+                  <Button size="sm" disabled={!askDate || askReason.trim().length < 3} loading={askExtension.isPending} onClick={() => askExtension.mutate()}>
+                    Enviar pedido
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {task.status === 'IN_REVIEW' && task.createdById !== task.assigneeId && (
+              <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm">
+                <p className="font-medium text-ink-900">
+                  {task.assigneeId === me.id ? `Você entregou. Aguardando aprovação de ${task.createdBy.name.split(' ')[0]}.` : `${task.assignee.name.split(' ')[0]} entregou esta demanda.`}
+                </p>
+                {canDecide && task.assigneeId !== me.id && (
+                  <div className="mt-3 space-y-2">
+                    <Textarea rows={2} value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} placeholder="Comentário (obrigatório para pedir ajustes)" />
+                    <div className="flex gap-2">
+                      <Button size="sm" loading={reviewTask.isPending} onClick={() => reviewTask.mutate(true)}>
+                        Aprovar entrega
+                      </Button>
+                      <Button size="sm" variant="secondary" disabled={reviewTask.isPending || reviewNote.trim().length < 3} onClick={() => reviewTask.mutate(false)}>
+                        Pedir ajustes
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {pendingExt && (
+              <div className="rounded-xl border border-warn/30 bg-warn-soft p-4 text-sm">
+                <p className="font-medium text-ink-900">
+                  {pendingExt.requester.id === me.id ? 'Você pediu' : `${pendingExt.requester.name.split(' ')[0]} pediu`} mais prazo: até {fmtDateTime(pendingExt.requestedDueAt)}
+                </p>
+                <p className="mt-0.5 text-ink-700">“{pendingExt.reason}”</p>
+                {canDecide && pendingExt.requester.id !== me.id ? (
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" loading={decide.isPending} onClick={() => decide.mutate({ requestId: pendingExt.id, approve: true })}>
+                      Aprovar novo prazo
+                    </Button>
+                    <Button size="sm" variant="secondary" disabled={decide.isPending} onClick={() => decide.mutate({ requestId: pendingExt.id, approve: false })}>
+                      Recusar
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-ink-500">Aguardando resposta de {task.createdBy.name.split(' ')[0]}.</p>
+                )}
+              </div>
+            )}
 
             {delegating && (
               <div className="space-y-3 rounded-lg border border-ink-200 bg-ink-50 p-4">
@@ -311,20 +439,6 @@ function TaskDrawer({ id, onClose }: { id: string | null; onClose: () => void })
               </div>
             </section>
 
-            {task.timeLogs.length > 0 && (
-              <section>
-                <h3 className="mb-1.5 text-[13px] font-medium text-ink-500">Registros de tempo</h3>
-                <ul className="divide-y divide-ink-100 rounded-lg border border-ink-200 text-sm">
-                  {task.timeLogs.map((l) => (
-                    <li key={l.id} className="flex items-center gap-3 px-3 py-2">
-                      <span className="flex-1 text-ink-600">{fmtDateTime(l.startedAt)} · {TIMELOG_ACTIVITY_LABEL[l.activity]}</span>
-                      <span className="num font-medium">{l.endedAt ? formatMinutes(l.minutes) : 'em andamento'}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
             <section>
               <h3 className="mb-2 text-[13px] font-medium text-ink-500">Histórico</h3>
               <ol className="space-y-2.5 border-l border-ink-200 pl-4">
@@ -351,9 +465,9 @@ function TaskCard({ task, onOpen, showAssignee, mine }: { task: Task; onOpen: ()
   const doneItems = task.checklist.filter((c) => c.done).length;
   const late = due?.tone === 'danger' && task.status !== 'DONE';
   return (
-    <div onClick={onOpen} className="cursor-pointer rounded-lg border border-ink-200 bg-white p-3 transition hover:border-ink-300 hover:shadow-sm">
+    <div onClick={onOpen} className="cursor-pointer rounded-xl border border-ink-200/80 bg-white p-3 shadow-card transition hover:border-brand-200 hover:shadow-lift">
       <p className="text-sm font-medium leading-snug text-ink-900">{task.title}</p>
-      <div className="mt-2.5 flex items-center gap-2.5 text-2xs text-ink-500">
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 whitespace-nowrap text-2xs text-ink-500">
         <span className="flex items-center gap-1" title={`Prioridade ${TASK_PRIORITY_LABEL[task.priority].toLowerCase()}`}>
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: TASK_PRIORITY_COLOR[task.priority] }} />
           {TASK_PRIORITY_LABEL[task.priority]}
@@ -373,9 +487,14 @@ function TaskCard({ task, onOpen, showAssignee, mine }: { task: Task; onOpen: ()
             <MessageSquare className="h-3 w-3" /> {task._count.comments}
           </span>
         )}
-        <span className="flex-1" />
-        {mine && task.status !== 'DONE' && <TaskTimerButton taskId={task.id} compact />}
-        <Avatar user={showAssignee ? task.assignee : task.createdBy} size={20} />
+        {!!task.extensionRequests?.length && (
+          <span className="flex items-center gap-1 font-medium text-warn" title="Pedido de prorrogação aguardando resposta">
+            <CalendarClock className="h-3 w-3" /> prazo
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-1.5">
+          <Avatar user={showAssignee ? task.assignee : task.createdBy} size={22} />
+        </span>
       </div>
     </div>
   );
@@ -399,13 +518,13 @@ function DraggableCard(props: { task: Task; onOpen: () => void; showAssignee: bo
 function Column({ status, tasks, onOpen, showAssignee, meId }: { status: TaskStatus; tasks: Task[]; onOpen: (id: string) => void; showAssignee: boolean; meId: string }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
-    <div ref={setNodeRef} className={clsx('flex max-h-full w-[288px] shrink-0 flex-col rounded-xl border p-1.5 transition-colors', isOver ? 'border-brand-300 bg-brand-50' : 'border-transparent bg-ink-100/70')}>
+    <div ref={setNodeRef} className={clsx('flex min-h-0 min-w-[184px] flex-1 basis-0 flex-col rounded-2xl border p-1.5 transition-colors', isOver ? 'border-brand-300 bg-brand-50' : 'border-transparent bg-ink-100/70')}>
       <div className="flex h-8 shrink-0 items-center gap-2 px-2">
         <span className="h-2 w-2 rounded-full" style={{ background: TASK_STATUS_COLOR[status] }} />
         <p className="text-[13px] font-semibold text-ink-800">{TASK_STATUS_LABEL[status]}</p>
         <span className="num text-xs text-ink-400">{tasks.length}</span>
       </div>
-      <div className="scroll-thin flex min-h-[44px] flex-col gap-1.5 overflow-y-auto p-0.5">
+      <div className="scroll-thin flex min-h-[44px] flex-1 flex-col gap-1.5 overflow-y-auto p-0.5">
         {tasks.map((t) => (
           <DraggableCard key={t.id} task={t} onOpen={() => onOpen(t.id)} showAssignee={showAssignee} mine={t.assigneeId === meId} />
         ))}
@@ -416,13 +535,215 @@ function Column({ status, tasks, onOpen, showAssignee, meId }: { status: TaskSta
 }
 
 // ───────────── Página ─────────────
+// ───────────── Meu trabalho (lista por urgência) ─────────────
+const DAY = 86400000;
+const CLOSED: TaskStatus[] = ['DONE', 'CANCELED'];
+const startOfToday = () => {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+};
+
+/** Cor do prazo no padrão do Linear: vermelho atrasado, laranja nos próximos 7 dias, cinza depois */
+function dueTone(t: Task) {
+  if (!t.dueAt || CLOSED.includes(t.status)) return 'text-ink-400';
+  const due = new Date(t.dueAt).getTime();
+  if (due < Date.now()) return 'font-medium text-bad';
+  if (due < startOfToday() + 7 * DAY) return 'font-medium text-warn';
+  return 'text-ink-500';
+}
+
+function buckets(tasks: Task[]) {
+  const today = startOfToday();
+  const open = tasks.filter((t) => !CLOSED.includes(t.status));
+  const prio = (t: Task) => TASK_PRIORITIES.length - TASK_PRIORITIES.indexOf(t.priority);
+  const byDue = (a: Task, b: Task) => (a.dueAt ? +new Date(a.dueAt) : Infinity) - (b.dueAt ? +new Date(b.dueAt) : Infinity) || prio(a) - prio(b);
+  const at = (t: Task) => (t.dueAt ? +new Date(t.dueAt) : null);
+  const groups = [
+    { key: 'late', label: 'Atrasadas', dot: '#D93036', items: open.filter((t) => at(t) !== null && at(t)! < Date.now()) },
+    { key: 'today', label: 'Hoje', dot: '#C77700', items: open.filter((t) => at(t) !== null && at(t)! >= Date.now() && at(t)! < today + DAY) },
+    { key: 'week', label: 'Próximos 7 dias', dot: '#2D3FE0', items: open.filter((t) => at(t) !== null && at(t)! >= today + DAY && at(t)! < today + 7 * DAY) },
+    { key: 'later', label: 'Mais adiante', dot: '#8A93AD', items: open.filter((t) => at(t) !== null && at(t)! >= today + 7 * DAY) },
+    { key: 'none', label: 'Sem prazo', dot: '#C5CAD6', items: open.filter((t) => at(t) === null) },
+  ].map((g) => ({ ...g, items: g.items.sort(byDue) }));
+  const done = tasks
+    .filter((t) => t.status === 'DONE' && (!t.completedAt || Date.now() - +new Date(t.completedAt) < 14 * DAY))
+    .sort((a, b) => +new Date(b.completedAt ?? b.createdAt) - +new Date(a.completedAt ?? a.createdAt));
+  return { groups, done };
+}
+
+function WorkRow({ t, onOpen, onToggle, showAssignee, mine }: { t: Task; onOpen: () => void; onToggle: () => void; showAssignee: boolean; mine: boolean }) {
+  const done = t.status === 'DONE';
+  const review = t.status === 'IN_REVIEW';
+  const due = dueLabel(t.dueAt);
+  const doneItems = t.checklist.filter((c) => c.done).length;
+  const who = showAssignee ? t.assignee : t.createdBy;
+  return (
+    <li className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-ink-50/70">
+      <button
+        onClick={onToggle}
+        disabled={review}
+        aria-label={review ? 'Aguardando aprovação' : done ? 'Reabrir demanda' : 'Concluir demanda'}
+        title={review ? `Aguardando aprovação de ${t.createdBy.name.split(' ')[0]}` : done ? 'Reabrir' : 'Concluir'}
+        className={clsx(
+          'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-[1.5px] transition',
+          review ? 'cursor-default border-warn bg-warn-soft text-warn' : done ? 'border-ok bg-ok text-white' : 'border-ink-300 text-transparent hover:border-ok hover:bg-ok-soft hover:text-ok',
+        )}
+      >
+        {review ? <Clock className="h-2.5 w-2.5" strokeWidth={3} /> : <Check className="h-3 w-3" strokeWidth={3} />}
+      </button>
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: TASK_PRIORITY_COLOR[t.priority] }} title={`Prioridade ${TASK_PRIORITY_LABEL[t.priority].toLowerCase()}`} />
+      <button onClick={onOpen} className="min-w-0 flex-1 text-left">
+        <span className={clsx('block truncate text-sm', done ? 'text-ink-400 line-through' : 'font-medium text-ink-900 group-hover:text-brand-700')}>{t.title}</span>
+      </button>
+      <span className="hidden shrink-0 items-center gap-3 text-xs text-ink-500 md:flex">
+        {(t.status === 'IN_PROGRESS' || t.status === 'BLOCKED' || t.status === 'IN_REVIEW') && (
+          <Badge color={TASK_STATUS_COLOR[t.status]} dot>
+            {TASK_STATUS_LABEL[t.status]}
+          </Badge>
+        )}
+        {t.checklist.length > 0 && (
+          <span className="num flex items-center gap-1">
+            <CheckSquare className="h-3.5 w-3.5" /> {doneItems}/{t.checklist.length}
+          </span>
+        )}
+        {t._count.comments > 0 && (
+          <span className="num flex items-center gap-1">
+            <MessageSquare className="h-3.5 w-3.5" /> {t._count.comments}
+          </span>
+        )}
+        {!!t.extensionRequests?.length && (
+          <span className="flex items-center gap-1 font-medium text-warn">
+            <CalendarClock className="h-3.5 w-3.5" /> Pediu mais prazo
+          </span>
+        )}
+      </span>
+      <span className={clsx('w-24 shrink-0 text-right text-xs', dueTone(t))}>{due?.text ?? ''}</span>
+      <span className="flex shrink-0 items-center justify-end" title={showAssignee ? `Com ${who.name}` : `Enviada por ${who.name}`}>
+        <Avatar user={who} size={24} />
+      </span>
+    </li>
+  );
+}
+
+/** Criação rápida: digita e aperta Enter (fica com você) */
+function QuickAdd() {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState('');
+  const [when, setWhen] = useState<'today' | 'tomorrow' | 'friday' | null>(null);
+  const dueAt = () => {
+    if (!when) return null;
+    const d = new Date(startOfToday());
+    if (when === 'tomorrow') d.setDate(d.getDate() + 1);
+    if (when === 'friday') d.setDate(d.getDate() + ((5 - d.getDay() + 7) % 7 || 7));
+    d.setHours(18, 0, 0, 0);
+    return d.toISOString();
+  };
+  const create = useMutation({
+    mutationFn: () => api.post<Task>('/tasks', { title: title.trim(), dueAt: dueAt() }),
+    onSuccess: () => {
+      setTitle('');
+      setWhen(null);
+      toast.success('Demanda criada');
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (title.trim().length >= 2) create.mutate();
+      }}
+      className="card flex flex-wrap items-center gap-2 px-3 py-2 focus-within:border-brand-300 focus-within:ring-4 focus-within:ring-brand-500/10"
+    >
+      <Plus className="h-4 w-4 shrink-0 text-ink-400" />
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Adicionar uma demanda para você e apertar Enter"
+        className="h-8 min-w-[220px] flex-1 bg-transparent text-sm outline-none placeholder:text-ink-400"
+        aria-label="Nova demanda"
+      />
+      <span className="flex gap-1">
+        {(
+          [
+            ['today', 'Hoje'],
+            ['tomorrow', 'Amanhã'],
+            ['friday', 'Sexta'],
+          ] as const
+        ).map(([k, l]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setWhen(when === k ? null : k)}
+            className={clsx('h-7 rounded-full px-2.5 text-xs font-medium transition', when === k ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 hover:bg-ink-200')}
+          >
+            {l}
+          </button>
+        ))}
+      </span>
+      <Button type="submit" size="sm" loading={create.isPending} disabled={title.trim().length < 2}>
+        Adicionar
+      </Button>
+    </form>
+  );
+}
+
+function WorkList({ tasks, onOpen, onToggle, showAssignee, meId, quickAdd }: { tasks: Task[]; onOpen: (id: string) => void; onToggle: (t: Task) => void; showAssignee: boolean; meId: string; quickAdd: boolean }) {
+  const { groups, done } = buckets(tasks);
+  const [showDone, setShowDone] = useState(false);
+  const empty = groups.every((g) => !g.items.length);
+  return (
+    <div className="scroll-thin -mx-1 min-h-0 flex-1 space-y-5 overflow-y-auto px-1 pb-4">
+      {quickAdd && <QuickAdd />}
+      {empty && (
+        <div className="card">
+          <EmptyState compact icon={<CheckSquare />} title="Tudo em dia" text="Nenhuma demanda aberta por aqui." />
+        </div>
+      )}
+      {groups
+        .filter((g) => g.items.length)
+        .map((g) => (
+          <section key={g.key}>
+            <h2 className="mb-2 flex items-center gap-2 px-1 text-[13px] font-semibold text-ink-700">
+              <span className="h-2 w-2 rounded-full" style={{ background: g.dot }} />
+              {g.label}
+              <span className="num font-normal text-ink-400">{g.items.length}</span>
+            </h2>
+            <ul className="card divide-y divide-ink-100 overflow-hidden">
+              {g.items.map((t) => (
+                <WorkRow key={t.id} t={t} onOpen={() => onOpen(t.id)} onToggle={() => onToggle(t)} showAssignee={showAssignee} mine={t.assigneeId === meId} />
+              ))}
+            </ul>
+          </section>
+        ))}
+      {done.length > 0 && (
+        <section>
+          <button onClick={() => setShowDone((v) => !v)} className="mb-2 flex items-center gap-1.5 px-1 text-[13px] font-semibold text-ink-500 hover:text-ink-800">
+            <ChevronRight className={clsx('h-4 w-4 transition-transform', showDone && 'rotate-90')} />
+            Concluídas nos últimos 14 dias
+            <span className="num font-normal text-ink-400">{done.length}</span>
+          </button>
+          {showDone && (
+            <ul className="card divide-y divide-ink-100 overflow-hidden">
+              {done.map((t) => (
+                <WorkRow key={t.id} t={t} onOpen={() => onOpen(t.id)} onToggle={() => onToggle(t)} showAssignee={showAssignee} mine={t.assigneeId === meId} />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
 export default function Tasks() {
   const me = useMe();
   const { isHR } = useAuth();
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const [scope, setScope] = useState<Scope>('mine');
-  const [view, setView] = useState<'board' | 'list'>('board');
+  const [view, setView] = useState<'board' | 'list'>('list');
   const [search, setSearch] = useState('');
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -461,6 +782,18 @@ export default function Tasks() {
     [tasks, search, onlyOverdue],
   );
   const overdueCount = (tasks ?? []).filter(isOverdue).length;
+  const openCount = (tasks ?? []).filter((t) => !CLOSED.includes(t.status)).length;
+  // No quadro, a coluna Concluída mostra só os últimos 14 dias
+  const boardTasks = filtered.filter((t) => t.status !== 'DONE' || !t.completedAt || Date.now() - +new Date(t.completedAt) < 14 * DAY);
+  const toggleDone = (t: Task) => {
+    if (t.status === 'IN_REVIEW') return;
+    // Veio de outra pessoa: a entrega vai para aprovação de quem enviou
+    const needsApproval = t.assigneeId === me.id && t.createdById !== t.assigneeId;
+    const next: TaskStatus = t.status === 'DONE' ? 'TODO' : needsApproval ? 'IN_REVIEW' : 'DONE';
+    move.mutate({ id: t.id, status: next });
+    if (next === 'IN_REVIEW') toast.success(`Entrega enviada para ${t.createdBy.name.split(' ')[0]} aprovar`);
+    else if (next === 'DONE') toast.success('Demanda concluída', { action: { label: 'Desfazer', onClick: () => move.mutate({ id: t.id, status: t.status }) } });
+  };
   const showAssignee = scope !== 'mine';
 
   const scopes: { value: Scope; label: string }[] = [
@@ -471,9 +804,10 @@ export default function Tasks() {
   ];
 
   return (
-    <div className="flex h-[calc(100vh-56px-48px)] flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
         title="Demandas"
+        subtitle={`${openCount} ${openCount === 1 ? 'aberta' : 'abertas'}${overdueCount ? `, ${overdueCount} ${overdueCount === 1 ? 'atrasada' : 'atrasadas'}` : ''}`}
         actions={
           <Button icon={<Plus className="h-4 w-4" />} onClick={() => setCreating(true)}>
             Nova demanda
@@ -502,8 +836,22 @@ export default function Tasks() {
             value={view}
             onChange={setView}
             items={[
-              { value: 'board', label: <Columns3 className="h-4 w-4" aria-label="Quadro" /> },
-              { value: 'list', label: <List className="h-4 w-4" aria-label="Lista" /> },
+              {
+                value: 'list',
+                label: (
+                  <span className="flex items-center gap-1.5">
+                    <List className="h-4 w-4" /> Lista
+                  </span>
+                ),
+              },
+              {
+                value: 'board',
+                label: (
+                  <span className="flex items-center gap-1.5">
+                    <Columns3 className="h-4 w-4" /> Quadro
+                  </span>
+                ),
+              },
             ]}
           />
         </div>
@@ -517,56 +865,14 @@ export default function Tasks() {
         </div>
       ) : view === 'board' ? (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-          <div className="scroll-thin -mx-4 flex min-h-0 flex-1 items-start gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="scroll-thin flex min-h-0 flex-1 items-stretch gap-3 overflow-x-auto pb-1">
             {BOARD_STATUSES.map((s) => (
-              <Column key={s} status={s} tasks={filtered.filter((t) => t.status === s)} onOpen={(id) => setParams({ task: id })} showAssignee={showAssignee} meId={me.id} />
+              <Column key={s} status={s} tasks={boardTasks.filter((t) => t.status === s)} onOpen={(id) => setParams({ task: id })} showAssignee={showAssignee} meId={me.id} />
             ))}
           </div>
         </DndContext>
       ) : (
-        <div className="card scroll-thin min-h-0 overflow-auto">
-          <table className="tbl min-w-[760px]">
-            <thead>
-              <tr>
-                <th>Demanda</th>
-                <th>Status</th>
-                <th>Prioridade</th>
-                <th>Prazo</th>
-                <th>{showAssignee ? 'Responsável' : 'Enviada por'}</th>
-                <th className="w-24" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((t) => {
-                const due = dueLabel(t.dueAt);
-                const who = showAssignee ? t.assignee : t.createdBy;
-                return (
-                  <tr key={t.id} onClick={() => setParams({ task: t.id })} className="clickable">
-                    <td className="font-medium">{t.title}</td>
-                    <td>
-                      <Badge color={TASK_STATUS_COLOR[t.status]} dot>
-                        {TASK_STATUS_LABEL[t.status]}
-                      </Badge>
-                    </td>
-                    <td>
-                      <span className="flex items-center gap-1.5 text-[13px]">
-                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: TASK_PRIORITY_COLOR[t.priority] }} />
-                        {TASK_PRIORITY_LABEL[t.priority]}
-                      </span>
-                    </td>
-                    <td className={clsx('num text-[13px]', isOverdue(t) && 'font-medium text-bad')}>{due?.text ?? '—'}</td>
-                    <td>
-                      <span className="flex items-center gap-2 text-[13px]">
-                        <Avatar user={who} size={22} /> {who.name}
-                      </span>
-                    </td>
-                    <td className="text-right">{t.assigneeId === me.id && t.status !== 'DONE' && <TaskTimerButton taskId={t.id} compact />}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <WorkList tasks={filtered} onOpen={(id) => setParams({ task: id })} onToggle={toggleDone} showAssignee={showAssignee} meId={me.id} quickAdd={scope === 'mine' && !search && !onlyOverdue} />
       )}
 
       <NewTaskModal open={creating} onClose={() => setCreating(false)} />

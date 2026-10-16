@@ -43,10 +43,11 @@ export const EMPLOYMENT_TYPE_LABEL: Record<EmploymentType, string> = {
   FREELANCER: 'Freelancer',
 };
 
+// Ordem do funil: o teste sai sozinho na candidatura; ao concluir, a pessoa vai para a triagem
 export const STAGES = [
   'APPLIED',
-  'SCREENING',
   'ASSESSMENT',
+  'SCREENING',
   'INTERVIEW',
   'OFFER',
   'HIRED',
@@ -72,7 +73,7 @@ export const STAGE_COLOR: Record<Stage, string> = {
   REJECTED: '#ef4444',
 };
 /** Etapas "ativas" do funil (sem as finais) */
-export const ACTIVE_STAGES: Stage[] = ['APPLIED', 'SCREENING', 'ASSESSMENT', 'INTERVIEW', 'OFFER'];
+export const ACTIVE_STAGES: Stage[] = ['APPLIED', 'ASSESSMENT', 'SCREENING', 'INTERVIEW', 'OFFER'];
 
 export const TASK_STATUSES = ['TODO', 'IN_PROGRESS', 'BLOCKED', 'IN_REVIEW', 'DONE', 'CANCELED'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -80,7 +81,7 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   TODO: 'A fazer',
   IN_PROGRESS: 'Em andamento',
   BLOCKED: 'Bloqueada',
-  IN_REVIEW: 'Em revisão',
+  IN_REVIEW: 'Aguardando aprovação',
   DONE: 'Concluída',
   CANCELED: 'Cancelada',
 };
@@ -160,16 +161,6 @@ export const DAY_STATUS_COLOR: Record<DayStatus, string> = {
   OFF: '#94a3b8',
 };
 
-export const VALIDATION_STATUSES = ['PENDING', 'CONFIRMED', 'CONTESTED', 'APPROVED', 'ADJUSTED'] as const;
-export type ValidationStatus = (typeof VALIDATION_STATUSES)[number];
-export const VALIDATION_STATUS_LABEL: Record<ValidationStatus, string> = {
-  PENDING: 'Aguardando colaborador',
-  CONFIRMED: 'Confirmado pelo colaborador',
-  CONTESTED: 'Contestado',
-  APPROVED: 'Aprovado pelo gestor',
-  ADJUSTED: 'Ajustado pelo gestor',
-};
-
 // ───────────── Agenda ─────────────
 export const RSVP_STATUSES = ['PENDING', 'ACCEPTED', 'DECLINED', 'TENTATIVE'] as const;
 export type RsvpStatus = (typeof RSVP_STATUSES)[number];
@@ -179,3 +170,101 @@ export const RSVP_LABEL: Record<RsvpStatus, string> = {
   DECLINED: 'Recusou',
   TENTATIVE: 'Talvez',
 };
+
+// ───────────── Níveis de cargo ─────────────
+export const LEVELS = ['ESTAGIO', 'JUNIOR', 'PLENO', 'SENIOR', 'ESPECIALISTA', 'COORDENACAO', 'GERENCIA', 'DIRETORIA'] as const;
+export type Level = (typeof LEVELS)[number];
+export const LEVEL_LABEL: Record<Level, string> = {
+  ESTAGIO: 'Estágio',
+  JUNIOR: 'Júnior',
+  PLENO: 'Pleno',
+  SENIOR: 'Sênior',
+  ESPECIALISTA: 'Especialista',
+  COORDENACAO: 'Coordenação',
+  GERENCIA: 'Gerência',
+  DIRETORIA: 'Diretoria',
+};
+/** Degraus preenchidos no indicador de senioridade (1 a 8) */
+export const levelRank = (l: string | null | undefined) => (l ? LEVELS.indexOf(l as Level) + 1 : 0);
+
+/** Sugere o nível pelo nome do cargo (mesma regra da migração) */
+export function inferLevel(title: string | null | undefined): Level {
+  const t = (title ?? '').toLowerCase();
+  if (t.includes('estagi')) return 'ESTAGIO';
+  if (/(^|\s)(ceo|cfo|cto|coo)(\s|$)/.test(t) || t.startsWith('diretor')) return 'DIRETORIA';
+  if (t.startsWith('gerente') || t.startsWith('head ') || t.startsWith('controller')) return 'GERENCIA';
+  if (t.startsWith('coordenador') || t.startsWith('tech lead') || t.startsWith('supervisor')) return 'COORDENACAO';
+  if (t.includes('especialista') || t.startsWith('key account')) return 'ESPECIALISTA';
+  if (/(sênior|senior|\bsr\b)/.test(t)) return 'SENIOR';
+  if (/(júnior|junior|\bjr\b)/.test(t) || /^(assistente|auxiliar|atendente|recepcionista)/.test(t)) return 'JUNIOR';
+  return 'PLENO';
+}
+
+// ───────────── Perguntas eliminatórias da vaga ─────────────
+export type ScreeningAnswerValue = 'YES' | 'NO';
+/** YES_NO: Sim/Não · CHOICE: múltipla escolha · NUMBER: número (ex.: pretensão salarial, anos de experiência) */
+export type ScreeningType = 'YES_NO' | 'CHOICE' | 'NUMBER';
+export const SCREENING_TYPE_LABEL: Record<ScreeningType, string> = { YES_NO: 'Sim ou não', CHOICE: 'Múltipla escolha', NUMBER: 'Número' };
+export interface ScreeningQuestion {
+  id: string;
+  text: string;
+  type?: ScreeningType;
+  /** YES_NO: resposta exigida */
+  expected?: ScreeningAnswerValue;
+  /** CHOICE: opções mostradas e quais passam */
+  options?: string[];
+  accepted?: string[];
+  /** NUMBER: faixa aceita (vazio = sem limite) e unidade mostrada ao candidato */
+  min?: number | null;
+  max?: number | null;
+  unit?: string | null;
+  /** ELIMINATE: descarta na hora · FLAG: só sinaliza para o RH */
+  mode: 'ELIMINATE' | 'FLAG';
+}
+export interface ScreeningAnswer extends ScreeningQuestion {
+  answer: string;
+  passed: boolean;
+}
+
+/** A resposta atende ao que a vaga exige? */
+export function screeningPasses(q: ScreeningQuestion, answer: string): boolean {
+  const type = q.type ?? 'YES_NO';
+  if (type === 'YES_NO') return answer === (q.expected ?? 'YES');
+  if (type === 'CHOICE') return (q.accepted ?? []).includes(answer);
+  const n = Number(String(answer).trim().replace(',', '.'));
+  if (!Number.isFinite(n)) return false;
+  return (q.min == null || n >= q.min) && (q.max == null || n <= q.max);
+}
+
+/** Texto curto do que a vaga exige (para o RH) */
+export function screeningRule(q: ScreeningQuestion): string {
+  const type = q.type ?? 'YES_NO';
+  if (type === 'YES_NO') return `Exige “${(q.expected ?? 'YES') === 'YES' ? 'Sim' : 'Não'}”`;
+  if (type === 'CHOICE') return `Aceita: ${(q.accepted ?? []).join(', ') || 'nenhuma opção'}`;
+  const u = q.unit ? ` ${q.unit}` : '';
+  if (q.min != null && q.max != null) return `Entre ${q.min} e ${q.max}${u}`;
+  if (q.min != null) return `No mínimo ${q.min}${u}`;
+  if (q.max != null) return `No máximo ${q.max}${u}`;
+  return 'Qualquer valor';
+}
+
+/** Resposta formatada para leitura */
+export function screeningAnswerText(q: ScreeningQuestion, answer: string): string {
+  const type = q.type ?? 'YES_NO';
+  if (type === 'YES_NO') return answer === 'YES' ? 'Sim' : 'Não';
+  if (type === 'NUMBER') return `${answer}${q.unit ? ` ${q.unit}` : ''}`;
+  return answer;
+}
+
+// ───────────── Avaliação de entrevista ─────────────
+export const RECOMMENDATIONS = ['STRONG_NO', 'NO', 'YES', 'STRONG_YES'] as const;
+export type Recommendation = (typeof RECOMMENDATIONS)[number];
+export const RECOMMENDATION_LABEL: Record<Recommendation, string> = { STRONG_NO: 'Definitivamente não', NO: 'Não', YES: 'Sim', STRONG_YES: 'Com certeza' };
+export const RECOMMENDATION_COLOR: Record<Recommendation, string> = { STRONG_NO: '#D93036', NO: '#C77700', YES: '#2D3FE0', STRONG_YES: '#1F9254' };
+export const RATING_LABEL: Record<number, string> = { 1: 'Fraco', 2: 'Abaixo do esperado', 3: 'Bom', 4: 'Excelente' };
+export const DEFAULT_SCORECARD_CRITERIA = ['Comunicação', 'Experiência na função', 'Resolução de problemas', 'Alinhamento com a cultura', 'Motivação para a vaga'];
+
+// ───────────── PDI ─────────────
+export const DEV_ACTION_KINDS = ['CURSO', 'PRATICA', 'MENTORIA', 'LEITURA', 'OUTRO'] as const;
+export type DevActionKind = (typeof DEV_ACTION_KINDS)[number];
+export const DEV_ACTION_LABEL: Record<DevActionKind, string> = { CURSO: 'Curso', PRATICA: 'Prática no trabalho', MENTORIA: 'Mentoria', LEITURA: 'Leitura', OUTRO: 'Outro' };

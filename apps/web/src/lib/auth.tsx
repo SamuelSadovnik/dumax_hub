@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { useQueryClient } from '@tanstack/react-query';
 import type { Me, Role } from '@dumax/shared';
 import { ADMIN_PORTAL_ROLES, HR_ROLES } from '@dumax/shared';
-import { api, tokenStore } from './api';
+import { ApiError, api, tokenStore } from './api';
 import { disconnectSocket } from './socket';
 
 interface AuthCtx {
@@ -28,14 +28,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    try {
-      setUser(await api.get<Me>('/auth/me'));
-    } catch {
-      tokenStore.set(null);
-      setUser(null);
-    } finally {
-      setLoading(false);
+    // Só desloga quando o servidor diz que a sessão é inválida (401/403).
+    // Falha de rede, API reiniciando ou erro 500: tenta de novo sem perder o login.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        setUser(await api.get<Me>('/auth/me'));
+        break;
+      } catch (e) {
+        if ((e instanceof ApiError && (e.status === 401 || e.status === 403)) || !tokenStore.get()) {
+          tokenStore.set(null);
+          setUser(null);
+          break;
+        }
+        await new Promise((r) => setTimeout(r, Math.min(5000, 800 * 2 ** attempt)));
+      }
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {

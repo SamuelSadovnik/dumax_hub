@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { authenticate, checkPassword, hashPassword, signToken } from '../lib/auth';
 import { HttpError, badRequest, parse, unauthorized } from '../lib/http';
+import { saveAvatar } from '../lib/avatar';
 
 const meSelect = {
   id: true,
@@ -62,11 +63,20 @@ export async function authRoutes(app: FastifyInstance) {
       z.object({
         name: z.string().min(2).optional(),
         phone: z.string().max(30).nullable().optional(),
-        avatarUrl: z.string().url().nullable().optional(),
       }),
       req.body,
     );
     return prisma.user.update({ where: { id: req.auth.id }, data: body, select: meSelect });
+  });
+
+  /** Foto de perfil: envio (multipart, campo "file") e remoção */
+  app.post('/me/avatar', { preHandler: authenticate }, async (req) => {
+    const avatarUrl = await saveAvatar(req);
+    return prisma.user.update({ where: { id: req.auth.id }, data: { avatarUrl }, select: meSelect });
+  });
+
+  app.delete('/me/avatar', { preHandler: authenticate }, async (req) => {
+    return prisma.user.update({ where: { id: req.auth.id }, data: { avatarUrl: null }, select: meSelect });
   });
 
   app.post('/me/password', { preHandler: authenticate }, async (req) => {

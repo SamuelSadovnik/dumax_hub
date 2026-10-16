@@ -11,19 +11,53 @@ export async function feedRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
 
   // ─── Comunicados ───
-  app.get('/announcements', async () =>
-    prisma.announcement.findMany({
-      orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
-      take: 50,
-      include: { author: { select: userLite } },
-    }),
-  );
+  app.get('/announcements', async (req) => {
+    const [list, activeUsers] = await Promise.all([
+      prisma.announcement.findMany({
+        orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
+        take: 50,
+        include: { author: { select: userLite }, _count: { select: { reads: true } }, reads: { where: { userId: req.auth.id }, select: { readAt: true } } },
+      }),
+      prisma.user.count({ where: { active: true } }),
+    ]);
+    return list.map(({ reads, _count, ...a }) => ({ ...a, readByMe: reads.length > 0, readCount: _count.reads, audience: activeUsers }));
+  });
+
+  /** "Li e entendi" num comunicado de leitura obrigatória */
+  app.post('/announcements/:id/ack', async (req) => {
+    const { id } = req.params as { id: string };
+    const a = await prisma.announcement.findUnique({ where: { id }, select: { id: true } });
+    if (!a) throw badRequest('Comunicado não encontrado');
+    await prisma.announcementRead.upsert({ where: { announcementId_userId: { announcementId: id, userId: req.auth.id } }, create: { announcementId: id, userId: req.auth.id }, update: {} });
+    return { ok: true };
+  });
+
+  /** Quem já confirmou a leitura e quem falta */
+  app.get('/announcements/:id/reads', { preHandler: requireRole('ADMIN', 'HR', 'MANAGER') }, async (req) => {
+    const { id } = req.params as { id: string };
+    const [reads, users] = await Promise.all([
+      prisma.announcementRead.findMany({ where: { announcementId: id }, orderBy: { readAt: 'desc' }, include: { user: { select: userLite } } }),
+      prisma.user.findMany({ where: { active: true }, select: userLite, orderBy: { name: 'asc' } }),
+    ]);
+    const done = new Set(reads.map((r) => r.userId));
+    return { read: reads.map((r) => ({ user: r.user, readAt: r.readAt })), pending: users.filter((u) => !done.has(u.id)) };
+  });
 
   app.post('/announcements', { preHandler: requireRole('ADMIN', 'HR', 'MANAGER') }, async (req) => {
-    const body = parse(z.object({ title: z.string().min(3).max(150), body: z.string().min(3).max(10000), pinned: z.boolean().default(false) }), req.body);
+    const body = parse(
+      z.object({ title: z.string().min(3).max(150), body: z.string().min(3).max(10000), pinned: z.boolean().default(false), requiresAck: z.boolean().default(false) }),
+      req.body,
+    );
     const a = await prisma.announcement.create({ data: { ...body, authorId: req.auth.id }, include: { author: { select: userLite } } });
+    // quem publica já conta como lido
+    if (body.requiresAck) await prisma.announcementRead.create({ data: { announcementId: a.id, userId: req.auth.id } });
     const everyone = await prisma.user.findMany({ where: { active: true, id: { not: req.auth.id } }, select: { id: true } });
-    await notify(everyone.map((u) => u.id), { type: 'announcement', title: `📣 ${a.title}`, body: a.body.slice(0, 140), link: '/mural' });
+    await notify(everyone.map((u) => u.id), {
+      type: 'announcement',
+      title: body.requiresAck ? `📌 Leitura obrigatória: ${a.title}` : `📣 ${a.title}`,
+      body: a.body.slice(0, 140),
+      link: '/mural',
+    });
     return a;
   });
 

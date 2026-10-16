@@ -35,6 +35,7 @@ export async function orgRoutes(app: FastifyInstance) {
           ...userLite,
           managerId: true,
           departmentId: true,
+          level: true,
           teamMemberships: { select: { teamId: true } },
         },
         orderBy: { name: 'asc' },

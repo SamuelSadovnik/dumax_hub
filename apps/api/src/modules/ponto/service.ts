@@ -25,12 +25,11 @@ function workedMinutes(entries: TimeEntry[], openUntil: Date | null) {
 
 /**
  * Consolida um dia de um colaborador: horas trabalhadas, atraso, saldo e status.
- * Dias já aprovados/ajustados pelo gestor ficam travados.
+ * As batidas vêm da API do sistema de ponto; aqui só calculamos, nunca editamos o horário.
  */
 export async function computeDay(userId: string, dateKey: string) {
   const date = dateOnly(dateKey);
   const existing = await prisma.timeDay.findUnique({ where: { userId_date: { userId, date } } });
-  if (existing && (existing.validation === 'APPROVED' || existing.validation === 'ADJUSTED')) return existing;
 
   const schedule = (await prisma.workSchedule.findUnique({ where: { userId } })) ?? DEFAULT_SCHEDULE;
   const { start, end } = dayBounds(dateKey);
@@ -75,18 +74,10 @@ export async function computeDay(userId: string, dateKey: string) {
     status,
   };
 
-  const changed =
-    !existing ||
-    existing.workedMinutes !== worked ||
-    existing.lateMinutes !== late ||
-    existing.status !== status ||
-    existing.balanceMinutes !== balance;
-
   return prisma.timeDay.upsert({
     where: { userId_date: { userId, date } },
     create: { userId, date, ...values },
-    // se mudou algo depois da confirmação, volta para "aguardando colaborador"
-    update: { ...values, ...(changed && existing?.validation === 'CONFIRMED' && !isToday ? { validation: 'PENDING', confirmedAt: null } : {}) },
+    update: values,
   });
 }
 

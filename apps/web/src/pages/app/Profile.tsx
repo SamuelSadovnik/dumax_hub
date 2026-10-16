@@ -3,19 +3,20 @@ import { toast } from 'sonner';
 import { ROLE_LABEL } from '@dumax/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth, useMe } from '@/lib/auth';
-import { Avatar, Button, Field, Input, PageHeader } from '@/components/ui';
+import { Button, Field, Input, PageHeader } from '@/components/ui';
+import { AvatarUpload } from '@/components/AvatarUpload';
 
 export default function Profile() {
   const me = useMe();
   const { refresh } = useAuth();
-  const [form, setForm] = useState({ name: me.name, phone: me.phone ?? '', avatarUrl: me.avatarUrl ?? '' });
+  const [form, setForm] = useState({ name: me.name, phone: me.phone ?? '' });
   const [pwd, setPwd] = useState({ current: '', next: '' });
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
     try {
-      await api.patch('/auth/me', { name: form.name, phone: form.phone || null, avatarUrl: form.avatarUrl || null });
+      await api.patch('/auth/me', { name: form.name, phone: form.phone || null });
       await refresh();
       toast.success('Perfil atualizado');
     } catch (e) {
@@ -38,14 +39,12 @@ export default function Profile() {
     <div className="mx-auto max-w-2xl space-y-5">
       <PageHeader title="Meus dados" />
       <div className="card p-6">
-        <div className="mb-6 flex items-center gap-4">
-          <Avatar user={{ ...me, avatarUrl: form.avatarUrl || null }} size={64} />
-          <div>
-            <p className="text-lg font-semibold">{me.name}</p>
-            <p className="text-sm text-ink-500">
-              {me.jobTitle} · {ROLE_LABEL[me.role]} {me.department && `· ${me.department.name}`}
-            </p>
-          </div>
+        <div className="mb-6 border-b border-ink-100 pb-6">
+          <p className="text-lg font-semibold">{me.name}</p>
+          <p className="mb-4 text-sm text-ink-500">
+            {me.jobTitle} · {ROLE_LABEL[me.role]} {me.department && `· ${me.department.name}`}
+          </p>
+          <AvatarUpload user={me} endpoint="/auth/me/avatar" onChange={refresh} />
         </div>
         <div className="space-y-4">
           <Field label="Nome">
@@ -53,9 +52,6 @@ export default function Profile() {
           </Field>
           <Field label="Telefone">
             <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-          </Field>
-          <Field label="URL da foto" hint="Cole o link de uma imagem (ex.: foto do LinkedIn)">
-            <Input value={form.avatarUrl} onChange={(e) => setForm({ ...form, avatarUrl: e.target.value })} />
           </Field>
           <Button loading={saving} onClick={save}>
             Salvar

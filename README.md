@@ -51,9 +51,9 @@ npm run dev
 
 ## O banco de demonstração
 
-Empresa fictícia em Cascavel/PR com 40 pessoas em 7 áreas e 8 times, e com perfis de produtividade diferentes para o painel de desempenho ter o que mostrar:
+Empresa fictícia em Cascavel/PR com 46 pessoas em 7 áreas e 8 times (do estágio à diretoria, com coordenações intermediárias), e com perfis de produtividade diferentes para o painel de desempenho ter o que mostrar:
 
-- 60 dias de ponto (com atrasos, faltas, contestações e aprovações) e apontamento de horas cruzado com ele
+- 60 dias de ponto vindos da API de demonstração (com atrasos, faltas e dias incompletos)
 - centenas de demandas (no prazo, atrasadas, bloqueadas), metas do trimestre com check-ins, feedbacks e 1:1
 - reuniões semanais, 1:1 quinzenais e daily comercial (contam como tempo ocupado)
 - teste de perfil de quase todo mundo (mapa de perfis), 8 vagas com perfil ideal, ~70 candidatos com currículo, origem e aderência
@@ -64,19 +64,19 @@ Empresa fictícia em Cascavel/PR com 40 pessoas em 7 áreas e 8 times, e com per
 
 | Módulo | Onde | Destaques |
 |---|---|---|
-| **Desempenho** | `/admin`, `/admin/desempenho/:id`, `/desempenho` | Nota de 0 a 100 por pessoa (prazo, volume, uso do tempo, pontualidade, metas). Mostra **onde a pessoa não está sendo produtiva**: horas trabalhadas sem atividade registrada, demandas atrasadas, retrabalho, atrasos, metas atrás do ritmo. Feedbacks e 1:1 criptografados |
-| **Apontamento de horas** | cronômetro nas demandas | Inicia/para por demanda ou atividade (execução, reunião, suporte, retrabalho…) e cruza com o ponto |
+| **Desempenho** | `/admin`, `/admin/desempenho/:id`, `/desempenho` | Nota de 0 a 100 por pessoa: entregas no prazo (30%), volume (25%), metas (25%) e pontualidade (20%). Mostra demandas atrasadas, retrabalho, atrasos e metas atrás do ritmo. Feedbacks e 1:1 criptografados |
+| **1:1 e PDI** | `/1-1`, `/pdi`, `/admin/1-1`, `/admin/pdi` | 1:1 entre a pessoa e o gestor direto com pauta que os dois montam, combinados com responsável e prazo (os em aberto aparecem na Dashboard e passam para a próxima conversa) e histórico. PDI com objetivo, competência, prazo e ações (curso, prática, mentoria, leitura); o gestor vê quem do time está sem plano |
 | **Metas** | `/metas`, `/admin/metas` | Metas por pessoa e time, progresso contra o tempo decorrido, check-ins |
-| **Perfis comportamentais** | `/perfil-comportamental`, `/perfis`, `/admin/perfis` | Teste para todos os colaboradores e mapa em quadrantes com a foto de cada pessoa, posicionada pelos percentuais (Executor, Comunicador, Planejador, Analista) |
-| **Recrutamento** | `/admin/recrutamento` · público em `/vagas` | Perfil ideal por vaga, link por canal com origem medida, candidatura com currículo e aceite LGPD, teste de perfil automático, **aderência à vaga** (radar candidato × ideal × time, diferenças e perguntas para a entrevista), kanban e ranking, aprovar, reprovar ou entrar em contato |
+| **Perfis comportamentais** | `/perfil-comportamental`, `/perfis`, `/admin/perfis` | Teste para todos (convite automático para quem entra e lembrete toda segunda a quem falta). Mapa em bússola com a foto de cada pessoa, cartões por perfil e visão em colunas |
+| **Recrutamento** | `/admin/recrutamento` · público em `/vagas` | Perfil ideal por vaga, link por canal com origem medida, candidatura com currículo e aceite LGPD, **perguntas eliminatórias** de sim/não, múltipla escolha ou número (CNH, carro próprio, anos de experiência, pretensão salarial) que descartam na hora ou só sinalizam, **avaliação de entrevista padronizada** (critérios de 1 a 4 e recomendação, notas dos outros só aparecem depois que você avalia), **banco de talentos** (`/admin/talentos`) para trazer quem já se candidatou para uma vaga nova, **indicação de colaboradores** (`/indicar`, link pessoal por vaga), teste de perfil automático com lembrete e vencimento, ida automática para a triagem com a aderência calculada, leitura do teste por IA, **aderência à vaga** (radar candidato × ideal × time, diferenças e perguntas para a entrevista), kanban e ranking, aprovar, reprovar ou entrar em contato |
 | **Documentos** | `/documentos`, `/admin/documentos` | Envio de PDF para assinatura (colaboradores e externos), ordem sequencial, assinatura desenhada ou digitada, trilha de auditoria com IP, certificado e página pública de verificação por SHA-256 |
 | **Licenças** | `/licencas`, `/admin/licencas` | Alvarás, AVCB, certificados, contratos e seguros com responsável, substituto, dias de aviso configuráveis e e-mails extras; renovação com histórico |
-| **Ponto** | `/ponto`, `/admin/ponto` | Integra com a API do seu sistema de ponto (sync a cada 15 min + webhook). Colaborador confirma ou contesta; gestor aprova ou ajusta |
+| **Ponto** | `/ponto`, `/admin/ponto` | Somente leitura: tudo vem da API do seu sistema de ponto (sync a cada 15 min + webhook). Batidas, horas, banco de horas, atrasos e faltas |
 | **Clima** | `/clima`, `/admin/clima` | Pulse toda sexta, média, participação, recorte por área com anonimato mínimo, comentários |
-| **Demandas** | `/demandas` | Enviar com prazo e prioridade, delegar, checklist, comentários, lembrete diário |
+| **Demandas** | `/demandas` | Lista "Meu trabalho" por urgência ou quadro. Alguém envia para a pessoa ou ela cria para si. Prazo definido por outra pessoa fica travado: quem recebeu pede **prorrogação** e quem enviou aprova ou recusa. Delegar, checklist, comentários, lembrete diário |
 | **Chat** | `/chat` | Estilo WhatsApp: tempo real, lido/entregue, responder, reagir pelo menu da mensagem, editar, apagar, anexos, fixar, arquivar, marcar como não lida, seleção múltipla, aviso no canto com som |
 | **Assistente IA** | botão no canto superior direito | Responde e executa ações (ponto, demandas, reuniões, desempenho, licenças, documentos) **respeitando a hierarquia** |
-| **Agenda, organograma, mural** | `/agenda`, `/organograma`, `/mural` | Dia/semana/mês com conflitos; organograma com zoom, arrastar e tela cheia; comunicados e elogios |
+| **Agenda, organograma, mural** | `/agenda`, `/organograma`, `/mural` | Dia/semana/mês com conflitos; organograma com foto, nível do cargo (estágio à diretoria), zoom, arrastar e tela cheia; comunicados (com **leitura obrigatória**: "Li e entendi", pendência na Dashboard e lista de quem falta) e elogios |
 
 ## Segurança
 

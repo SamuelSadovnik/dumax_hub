@@ -3,10 +3,14 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { prisma, userLite } from '../lib/prisma';
 import { authenticate, getSubordinateIds, hashPassword, requireRole } from '../lib/auth';
-import { badRequest, notFound, parse } from '../lib/http';
+import { badRequest, notFound, parse, queryBool } from '../lib/http';
 import { onlineUserIds } from '../lib/realtime';
 import { sendMail, mailLayout } from '../lib/mailer';
 import { env } from '../env';
+import { saveAvatar } from '../lib/avatar';
+import { notify } from '../lib/notify';
+
+import { LEVELS, inferLevel } from '@dumax/shared';
 
 const roleEnum = z.enum(['ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']);
 
@@ -15,6 +19,7 @@ const userInput = z.object({
   email: z.string().email(),
   role: roleEnum.default('EMPLOYEE'),
   jobTitle: z.string().max(80).nullish(),
+  level: z.enum(LEVELS).nullish(),
   phone: z.string().max(30).nullish(),
   managerId: z.string().nullish(),
   departmentId: z.string().nullish(),
@@ -30,6 +35,7 @@ const fullSelect = {
   hiredAt: true,
   birthday: true,
   lastSeenAt: true,
+  level: true,
   pontoCode: true,
   managerId: true,
   manager: { select: userLite },
@@ -45,7 +51,7 @@ export async function userRoutes(app: FastifyInstance) {
   /** Diretório — todo mundo pode listar (usado no chat, atribuição de demandas, organograma) */
   app.get('/', async (req) => {
     const q = parse(
-      z.object({ search: z.string().optional(), includeInactive: z.coerce.boolean().optional() }),
+      z.object({ search: z.string().optional(), includeInactive: queryBool().optional() }),
       req.query,
     );
     const users = await prisma.user.findMany({
@@ -104,6 +110,7 @@ export async function userRoutes(app: FastifyInstance) {
     const user = await prisma.user.create({
       data: {
         ...data,
+        level: data.level ?? inferLevel(data.jobTitle),
         email: data.email.toLowerCase().trim(),
         passwordHash: await hashPassword(password),
         workSchedule: { create: {} },
@@ -119,7 +126,26 @@ export async function userRoutes(app: FastifyInstance) {
         { label: 'Acessar o Hub', url: `${env.WEB_URL}/login` },
       ),
     );
+    // Teste de perfil automático para quem chega
+    await notify([user.id], {
+      type: 'profile.request',
+      title: 'Boas-vindas! Faça seu teste de perfil (5 minutos)',
+      body: 'Ajuda o time a entender como você gosta de trabalhar.',
+      link: '/perfil-comportamental',
+    });
     return { user, temporaryPassword: body.password ? undefined : password };
+  });
+
+  /** RH/admin trocam ou removem a foto de alguém */
+  app.post('/:id/avatar', { preHandler: requireRole('ADMIN', 'HR') }, async (req) => {
+    const { id } = req.params as { id: string };
+    const avatarUrl = await saveAvatar(req);
+    return prisma.user.update({ where: { id }, data: { avatarUrl }, select: fullSelect });
+  });
+
+  app.delete('/:id/avatar', { preHandler: requireRole('ADMIN', 'HR') }, async (req) => {
+    const { id } = req.params as { id: string };
+    return prisma.user.update({ where: { id }, data: { avatarUrl: null }, select: fullSelect });
   });
 
   app.patch('/:id', { preHandler: requireRole('ADMIN', 'HR') }, async (req) => {

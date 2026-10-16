@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, ArrowUpDown, Info } from 'lucide-react';
-import { FLAG_COLOR, SCORE_LEVELS, SCORE_WEIGHTS, formatMinutes, scoreLevel, type ScoreLevel } from '@dumax/shared';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { FLAG_COLOR, SCORE_LEVELS, formatMinutes, scoreLevel, type ScoreLevel } from '@dumax/shared';
 import { api } from '@/lib/api';
 import type { Department, PerformanceOverview, Team } from '@/lib/types';
 import { pct } from '@/lib/format';
@@ -55,7 +55,7 @@ export default function Performance() {
   const [teamId, setTeamId] = useState('');
   const [level, setLevel] = useState<ScoreLevel | ''>('');
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'score', dir: 1 });
-  const [showMethod, setShowMethod] = useState(false);
+  const [showAllInsights, setShowAllInsights] = useState(false);
 
   const { data: depts = [] } = useQuery({ queryKey: ['departments'], queryFn: () => api.get<Department[]>('/org/departments') });
   const { data: teams = [] } = useQuery({ queryKey: ['teams'], queryFn: () => api.get<Team[]>('/org/teams') });
@@ -124,25 +124,19 @@ export default function Performance() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           label="Nota média"
           value={s.avgScore !== null ? Math.round(s.avgScore) : '—'}
           delta={s.avgScore !== null && s.prevAvgScore !== null ? s.avgScore - s.prevAvgScore : null}
           hint="de 0 a 100"
         />
-        <StatCard
-          label="Horas sem registro"
-          value={formatMinutes(s.untrackedHours * 60)}
-          tone={s.workedHours && s.untrackedHours / s.workedHours > 0.3 ? 'danger' : 'default'}
-          hint={s.workedHours ? `${Math.round((s.untrackedHours / s.workedHours) * 100)}% das ${Math.round(s.workedHours)}h trabalhadas` : undefined}
-        />
         <StatCard label="Entregas no prazo" value={pct(s.avgOnTime)} hint={`${s.tasksDone} demandas entregues`} />
         <StatCard label="Atrasadas em aberto" value={s.overdueOpen} tone={s.overdueOpen ? 'danger' : 'default'} />
         <StatCard label="Pontualidade" value={pct(s.avgPunctuality)} hint="dias sem atraso" />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <Panel
           title="Pessoas"
           subtitle="Clique numa linha para ver o raio-x da pessoa"
@@ -163,13 +157,11 @@ export default function Performance() {
           }
         >
           <div className="scroll-thin overflow-x-auto">
-            <table className="tbl min-w-[880px]">
+            <table className="tbl min-w-[760px] table-fixed [&_th:first-child]:w-[220px] [&_th:last-child]:w-[300px]">
               <thead>
                 <tr>
                   {th('name', 'Pessoa')}
                   {th('score', 'Nota')}
-                  {th('utilization', 'Tempo com atividade')}
-                  {th('untracked', 'Sem registro')}
                   {th('onTime', 'No prazo')}
                   {th('overdue', 'Atrasadas')}
                   {th('punctuality', 'Pontualidade')}
@@ -194,17 +186,13 @@ export default function Performance() {
                         <ScoreCell score={p.score} delta={p.delta} />
                       </td>
                       <td>
-                        <Meter value={p.metrics.utilization} good={0.75} warn={0.6} />
-                      </td>
-                      <td className={clsx('num text-[13px]', p.metrics.untrackedMinutes > 10 * 60 && 'font-medium text-bad')}>{p.metrics.workedMinutes ? formatMinutes(p.metrics.untrackedMinutes) : '—'}</td>
-                      <td>
                         <Meter value={p.metrics.onTimeRate} />
                       </td>
                       <td className={clsx('num text-[13px]', p.metrics.overdueOpen ? 'font-medium text-bad' : 'text-ink-400')}>{p.metrics.overdueOpen}</td>
                       <td>
                         <Meter value={p.metrics.punctuality} good={0.9} warn={0.75} />
                       </td>
-                      <td className="max-w-[260px]">
+                      <td className="max-w-[300px]">
                         {top ? (
                           <span className="flex items-center gap-1.5 text-[13px] text-ink-600">
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: FLAG_COLOR[top.severity] }} />
@@ -226,10 +214,10 @@ export default function Performance() {
 
         <div className="space-y-5">
           <Panel title="Onde agir primeiro" subtitle={`${data.insights.filter((i) => i.severity === 'high').length} alertas críticos`}>
-            <ul className="scroll-thin max-h-[520px] overflow-y-auto">
+            <ul>
               {data.insights
                 .filter((i) => i.severity !== 'low')
-                .slice(0, 20)
+                .slice(0, showAllInsights ? 40 : 6)
                 .map((i, idx) => (
                   <li key={idx}>
                     <Link to={`/admin/desempenho/${i.user.id}?days=${days}`} className="flex gap-3 border-b border-ink-100 px-4 py-2.5 last:border-0 hover:bg-ink-50">
@@ -243,41 +231,13 @@ export default function Performance() {
                 ))}
               {!data.insights.length && <li className="px-4 py-5 text-sm text-ink-500">Nenhum alerta no período.</li>}
             </ul>
+            {data.insights.filter((i) => i.severity !== 'low').length > 6 && (
+              <button onClick={() => setShowAllInsights((v) => !v)} className="w-full border-t border-ink-100 px-4 py-2.5 text-left text-[13px] font-medium text-brand-600 hover:bg-ink-50">
+                {showAllInsights ? 'Mostrar menos' : `Ver todos os ${data.insights.filter((i) => i.severity !== 'low').length} alertas`}
+              </button>
+            )}
           </Panel>
 
-          <Panel
-            title="Como a nota é calculada"
-            actions={
-              <button onClick={() => setShowMethod((v) => !v)} className="text-ink-400 hover:text-ink-700" aria-label="Mostrar método">
-                <Info className="h-4 w-4" />
-              </button>
-            }
-          >
-            <div className={clsx('px-4 py-3 text-[13px] text-ink-600', !showMethod && 'line-clamp-2')}>
-              <p>Média ponderada de cinco fatores no período, com desconto de 3 pontos por demanda atrasada em aberto (máximo 15). Fatores sem dado são ignorados.</p>
-              <table className="mt-3 w-full">
-                <tbody>
-                  {(
-                    [
-                      ['Tempo com atividade registrada', 'utilization', 'horas registradas + reuniões ÷ horas do ponto'],
-                      ['Entregas no prazo', 'onTime', '% concluídas até o prazo'],
-                      ['Volume entregue', 'throughput', 'comparado à mediana do grupo'],
-                      ['Metas', 'goals', 'progresso médio das metas'],
-                      ['Pontualidade', 'punctuality', 'dias sem atraso no ponto'],
-                    ] as const
-                  ).map(([label, key, how]) => (
-                    <tr key={key} className="border-t border-ink-100">
-                      <td className="py-1.5 pr-2">
-                        <span className="block font-medium text-ink-800">{label}</span>
-                        <span className="text-xs text-ink-500">{how}</span>
-                      </td>
-                      <td className="num py-1.5 text-right font-medium">{Math.round(SCORE_WEIGHTS[key] * 100)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
         </div>
       </div>
     </div>

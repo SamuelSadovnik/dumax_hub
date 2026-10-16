@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { Prisma, type Stage } from '@prisma/client';
-import { STAGE_LABEL, PROFILES, type AssessmentResult, type ProfileKey } from '@dumax/shared';
+import { DEFAULT_SCORECARD_CRITERIA, RECOMMENDATION_LABEL, STAGE_LABEL, PROFILES, screeningAnswerText, screeningPasses, screeningRule, type AssessmentResult, type ProfileKey, type ScreeningAnswer, type ScreeningQuestion } from '@dumax/shared';
 import { prisma, userLite } from '../lib/prisma';
 import { authenticate, requireRole } from '../lib/auth';
 import { badRequest, conflict, notFound, parse } from '../lib/http';
@@ -13,6 +13,7 @@ import { hrUserIds, notify } from '../lib/notify';
 import { env } from '../env';
 import { publicQuestions, scoreDisc } from './assessments/disc';
 import { analyzeFit } from './profiles';
+import { readProfile } from './assessments/reading';
 import { profileFit, normalizeProfile, type ProfileScores } from '@dumax/shared';
 
 const stageEnum = z.enum(['APPLIED', 'SCREENING', 'ASSESSMENT', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED']);
@@ -32,6 +33,29 @@ const jobInput = z.object({
   openings: z.number().int().min(1).default(1),
   status: z.enum(['DRAFT', 'OPEN', 'PAUSED', 'CLOSED']).default('DRAFT'),
   autoSendAssessment: z.boolean().default(true),
+  screeningQuestions: z
+    .array(
+      z
+        .object({
+          id: z.string().min(1).max(40),
+          text: z.string().min(3, 'Escreva a pergunta').max(200),
+          type: z.enum(['YES_NO', 'CHOICE', 'NUMBER']).default('YES_NO'),
+          expected: z.enum(['YES', 'NO']).default('YES'),
+          options: z.array(z.string().trim().min(1).max(100)).max(12).default([]),
+          accepted: z.array(z.string().trim().min(1).max(100)).max(12).default([]),
+          min: z.number().nullish(),
+          max: z.number().nullish(),
+          unit: z.string().trim().max(20).nullish(),
+          mode: z.enum(['ELIMINATE', 'FLAG']).default('ELIMINATE'),
+        })
+        .refine((q) => q.type !== 'CHOICE' || (q.options.length >= 2 && q.accepted.length >= 1 && q.accepted.every((a) => q.options.includes(a))), {
+          message: 'Múltipla escolha precisa de pelo menos 2 opções e 1 opção aceita',
+        })
+        .refine((q) => q.type !== 'NUMBER' || q.min == null || q.max == null || q.min <= q.max, { message: 'O mínimo precisa ser menor que o máximo' }),
+    )
+    .max(15)
+    .default([]),
+  scorecardCriteria: z.array(z.string().trim().min(2).max(60)).max(10).nullish(),
   departmentId: z.string().nullish(),
   closesAt: z.coerce.date().nullish(),
   idealProfile: z
@@ -66,10 +90,37 @@ const publicJobSelect = {
   publishedAt: true,
   closesAt: true,
   department: { select: { name: true, color: true } },
+  screeningQuestions: true,
 } as const;
 
-function hidePrivateSalary<T extends { showSalary: boolean; salaryMin: number | null; salaryMax: number | null }>(j: T) {
-  return j.showSalary ? j : { ...j, salaryMin: null, salaryMax: null };
+/** Lê as perguntas guardadas em JSON, ignorando itens malformados */
+export function asQuestions(v: Prisma.JsonValue | null | undefined): ScreeningQuestion[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(
+    (q): q is Prisma.JsonObject => Boolean(q) && typeof q === 'object' && !Array.isArray(q) && typeof (q as Prisma.JsonObject).id === 'string' && typeof (q as Prisma.JsonObject).text === 'string',
+  ).map((q) => {
+    const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const type = q.type === 'CHOICE' || q.type === 'NUMBER' ? q.type : 'YES_NO';
+    return {
+      id: String(q.id),
+      text: String(q.text),
+      type,
+      expected: q.expected === 'NO' ? 'NO' : 'YES',
+      options: strs(q.options),
+      accepted: strs(q.accepted),
+      min: num(q.min),
+      max: num(q.max),
+      unit: typeof q.unit === 'string' ? q.unit : null,
+      mode: q.mode === 'FLAG' ? 'FLAG' : 'ELIMINATE',
+    } satisfies ScreeningQuestion;
+  });
+}
+
+/** Versão pública da vaga: esconde salário (se pedido) e a resposta exigida nas perguntas */
+function hidePrivateSalary<T extends { showSalary: boolean; salaryMin: number | null; salaryMax: number | null; screeningQuestions: Prisma.JsonValue }>(j: T) {
+  const base = j.showSalary ? j : { ...j, salaryMin: null, salaryMax: null };
+  return { ...base, screeningQuestions: asQuestions(j.screeningQuestions).map(({ id, text, type, options, unit }) => ({ id, text, type, options, unit })) };
 }
 
 /** Descriptografa os campos sensíveis do candidato antes de devolver */
@@ -192,6 +243,29 @@ export async function recruitmentRoutes(app: FastifyInstance) {
     );
     if (!resume) throw badRequest('Anexe seu currículo (PDF ou Word)');
 
+    // Perguntas da vaga: quem não atende a uma eliminatória é descartado na hora
+    const questions = asQuestions(job.screeningQuestions);
+    let given: Record<string, string> = {};
+    if (questions.length) {
+      try {
+        given = JSON.parse(fields.screening || '{}');
+      } catch {
+        throw badRequest('Respostas inválidas');
+      }
+    }
+    const screening: ScreeningAnswer[] = questions.map((q) => {
+      const answer = String(given[q.id] ?? '').trim();
+      const valid =
+        q.type === 'CHOICE' ? (q.options ?? []).includes(answer) : q.type === 'NUMBER' ? answer !== '' && Number.isFinite(Number(answer.replace(',', '.'))) : answer === 'YES' || answer === 'NO';
+      if (!valid) throw badRequest(`Responda: ${q.text}`);
+      return { ...q, answer, passed: screeningPasses(q, answer) };
+    });
+    const eliminated = screening.filter((x) => !x.passed && x.mode === 'ELIMINATE');
+    const flagged = screening.filter((x) => !x.passed && x.mode === 'FLAG');
+
+    // Indicação de colaborador (?ref=<id> no link)
+    const referrer = fields.ref ? await prisma.user.findFirst({ where: { id: fields.ref, active: true }, select: { id: true, name: true } }) : null;
+
     const email = data.email.toLowerCase().trim();
     const candidate = await prisma.candidate.upsert({
       where: { email },
@@ -211,10 +285,55 @@ export async function recruitmentRoutes(app: FastifyInstance) {
         resumePath: resume.key,
         resumeName: resume.name,
         coverLetter: encryptText(data.coverLetter),
-        source: data.source || 'site',
-        events: { create: { type: 'CREATED', body: 'Candidatura recebida pelo site', toStage: 'APPLIED' } },
+        source: referrer ? 'indicacao' : data.source || 'site',
+        screeningAnswers: screening.length ? (screening as unknown as Prisma.InputJsonValue) : undefined,
+        referredById: referrer?.id,
+        ...(eliminated.length
+          ? {
+              stage: 'REJECTED' as Stage,
+              stageUpdatedAt: new Date(),
+              rejectionReason: encryptText(`Não atende: ${eliminated.map((x) => `${x.text} (respondeu ${screeningAnswerText(x, x.answer)}; ${screeningRule(x).toLowerCase()})`).join('; ')}`),
+            }
+          : {}),
+        events: {
+          create: [
+            { type: 'CREATED', body: 'Candidatura recebida pelo site', toStage: 'APPLIED' },
+            ...(eliminated.length
+              ? [{ type: 'STAGE_CHANGED' as const, fromStage: 'APPLIED' as Stage, toStage: 'REJECTED' as Stage, body: `Descartado automaticamente pelas perguntas eliminatórias: ${eliminated.map((x) => x.text).join('; ')}` }]
+              : []),
+            ...(flagged.length ? [{ type: 'NOTE' as const, body: `Atenção: não atende a ${flagged.map((x) => `"${x.text}"`).join(', ')}` }] : []),
+            ...(referrer ? [{ type: 'NOTE' as const, body: `Indicado por ${referrer.name}` }] : []),
+          ],
+        },
       },
     });
+
+    if (referrer && !eliminated.length) {
+      await notify([referrer.id], {
+        type: 'referral.applied',
+        title: `${candidate.name.split(' ')[0]} se candidatou pela sua indicação`,
+        body: job.title,
+        link: '/indicar',
+      });
+    }
+
+    // Descartado pelas eliminatórias: resposta gentil ao candidato, sem incomodar o RH nem enviar teste
+    if (eliminated.length) {
+      await sendMail(
+        candidate.email,
+        `Sua candidatura para ${job.title}`,
+        mailLayout(
+          `Olá, ${candidate.name.split(' ')[0]}!`,
+          [
+            `Obrigado pelo interesse na vaga ${job.title}.`,
+            'Esta vaga tem um pré-requisito obrigatório que não foi atendido nas suas respostas, por isso não vamos seguir com a candidatura agora.',
+            'Seus dados ficam guardados com segurança e podemos te chamar para outras oportunidades.',
+          ],
+          { label: 'Ver outras vagas', url: `${env.WEB_URL}/vagas` },
+        ),
+      ).catch(() => undefined);
+      return { ok: true, applicationId: application.id, assessmentUrl: null };
+    }
 
     await notify(await hrUserIds(), {
       type: 'application.new',
@@ -289,16 +408,67 @@ export async function recruitmentRoutes(app: FastifyInstance) {
       }),
     ]);
 
+    // Automático: sai de "Teste de perfil" e vai para a Triagem já com a aderência calculada
+    const application = invite.application;
+    const analysis = await analyzeFit(result.scores, application.job);
+    if (application.stage === 'ASSESSMENT' || application.stage === 'APPLIED') {
+      await prisma.application.update({ where: { id: application.id }, data: { stage: 'SCREENING', stageUpdatedAt: new Date() } });
+      await prisma.applicationEvent.create({
+        data: {
+          applicationId: application.id,
+          type: 'STAGE_CHANGED',
+          fromStage: application.stage,
+          toStage: 'SCREENING',
+          body: `Movido automaticamente para a triagem após o teste${analysis.fit != null ? ` (aderência ${analysis.fit}%)` : ''}`,
+        },
+      });
+    }
+
     await notify(await hrUserIds(), {
       type: 'assessment.completed',
-      title: `${invite.application.candidate.name} concluiu o teste`,
-      body: `Perfil ${PROFILES[result.primary].label} · ${invite.application.job.title}`,
+      title: `${application.candidate.name} concluiu o teste`,
+      body: `Perfil ${PROFILES[result.primary].label}${analysis.fit != null ? ` · ${analysis.fit}% de aderência` : ''} · ${application.job.title}`,
       link: `/admin/recrutamento/candidaturas/${invite.applicationId}`,
     });
+
+    // Leitura pela IA em segundo plano: não atrasa a resposta para o candidato
+    void readProfile({
+      firstName: application.candidate.name.split(' ')[0],
+      scores: result.scores,
+      primary: result.primary,
+      secondary: result.secondary,
+      jobTitle: application.job.title,
+      ideal: analysis.ideal,
+      teamAvg: analysis.team?.avg ?? null,
+    })
+      .then((ai) => ai && prisma.assessmentInvite.update({ where: { id: invite.id }, data: { result: { ...result, ai } as unknown as Prisma.InputJsonValue } }))
+      .catch(() => undefined);
+
     return { primary: result.primary, secondary: result.secondary };
   });
 
   // ══════════════ Rotas do RH (autenticadas) ══════════════
+
+  // ══════════════ Indicações (qualquer colaborador) ══════════════
+  app.register(async (r) => {
+    r.addHook('preHandler', authenticate);
+    /** Vagas abertas para indicar + minhas indicações e em que etapa estão */
+    r.get('/referrals/mine', async (req) => {
+      const [jobs, referrals] = await Promise.all([
+        prisma.job.findMany({
+          where: { status: 'OPEN' },
+          orderBy: { publishedAt: 'desc' },
+          select: { id: true, slug: true, title: true, summary: true, location: true, workMode: true, openings: true, department: { select: { name: true, color: true } } },
+        }),
+        prisma.application.findMany({
+          where: { referredById: req.auth.id },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, stage: true, createdAt: true, candidate: { select: { name: true } }, job: { select: { title: true } } },
+        }),
+      ]);
+      return { jobs, referrals };
+    });
+  });
 
   app.register(async (hr) => {
     hr.addHook('preHandler', authenticate);
@@ -437,9 +607,11 @@ export async function recruitmentRoutes(app: FastifyInstance) {
         where: { id },
         include: {
           candidate: { include: { applications: { select: { id: true, stage: true, createdAt: true, job: { select: { title: true } } } } } },
-          job: { select: { id: true, title: true, slug: true, idealProfile: true, departmentId: true, department: { select: { name: true } } } },
+          job: { select: { id: true, title: true, slug: true, idealProfile: true, departmentId: true, scorecardCriteria: true, department: { select: { name: true } } } },
           events: { orderBy: { createdAt: 'desc' }, include: { author: { select: userLite } } },
           assessments: { orderBy: { createdAt: 'desc' } },
+          scorecards: { orderBy: { createdAt: 'asc' }, include: { author: { select: userLite } } },
+          referredBy: { select: userLite },
         },
       });
       if (!a) throw notFound('Candidatura não encontrada');
@@ -494,6 +666,15 @@ export async function recruitmentRoutes(app: FastifyInstance) {
         },
       });
 
+      if (body.stage === 'HIRED' && current.referredById) {
+        await notify([current.referredById], {
+          type: 'referral.hired',
+          title: `Sua indicação foi contratada 🎉`,
+          body: `${current.candidate.name} · ${current.job.title}`,
+          link: '/indicar',
+        });
+      }
+
       if (body.notifyCandidate) {
         const first = current.candidate.name.split(' ')[0];
         const msgs: Partial<Record<Stage, string[]>> = {
@@ -514,6 +695,106 @@ export async function recruitmentRoutes(app: FastifyInstance) {
         }
       }
       return updated;
+    });
+
+    // ─── Avaliação de entrevista padronizada (uma por avaliador) ───
+    hr.post('/applications/:id/scorecard', async (req) => {
+      const { id } = req.params as { id: string };
+      const exists = await prisma.application.findUnique({ where: { id }, select: { id: true } });
+      if (!exists) throw notFound('Candidatura não encontrada');
+      const body = parse(
+        z.object({
+          ratings: z.array(z.object({ name: z.string().min(1).max(60), rating: z.number().int().min(1).max(4), note: z.string().max(1000).optional() })).min(1).max(12),
+          recommendation: z.enum(['STRONG_NO', 'NO', 'YES', 'STRONG_YES']),
+          summary: z.string().max(3000).optional(),
+        }),
+        req.body,
+      );
+      const data = { ratings: body.ratings as unknown as Prisma.InputJsonValue, recommendation: body.recommendation, summary: body.summary || null };
+      const sc = await prisma.interviewScorecard.upsert({
+        where: { applicationId_authorId: { applicationId: id, authorId: req.auth.id } },
+        create: { applicationId: id, authorId: req.auth.id, ...data },
+        update: data,
+        include: { author: { select: userLite } },
+      });
+      await prisma.applicationEvent.create({
+        data: { applicationId: id, type: 'NOTE', authorId: req.auth.id, body: `Avaliação de entrevista: ${RECOMMENDATION_LABEL[body.recommendation]}` },
+      });
+      return sc;
+    });
+
+    // ─── Banco de talentos: candidatos de todas as vagas ───
+    hr.get('/candidates', async (req) => {
+      const q = parse(z.object({ search: z.string().optional(), profile: z.string().optional(), take: z.coerce.number().min(1).max(300).default(150) }), req.query);
+      const like = q.search?.trim();
+      const list = await prisma.candidate.findMany({
+        where: like ? { OR: [{ name: { contains: like, mode: 'insensitive' } }, { email: { contains: like, mode: 'insensitive' } }, { city: { contains: like, mode: 'insensitive' } }] } : {},
+        orderBy: { updatedAt: 'desc' },
+        take: q.take,
+        include: {
+          applications: {
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              stage: true,
+              rating: true,
+              createdAt: true,
+              job: { select: { id: true, title: true } },
+              assessments: { where: { status: 'COMPLETED' }, orderBy: { completedAt: 'desc' }, take: 1, select: { primaryProfile: true } },
+            },
+          },
+        },
+      });
+      const rows = list.map((c) => {
+        const { applications, ...cand } = decCandidate(c);
+        const profile = (applications.flatMap((a) => a.assessments).find((x) => x.primaryProfile)?.primaryProfile ?? null) as ProfileKey | null;
+        const ratings = applications.map((a) => a.rating ?? 0);
+        return {
+          ...cand,
+          profile,
+          rating: Math.max(0, ...ratings) || null,
+          hired: applications.some((a) => a.stage === 'HIRED'),
+          lastAppliedAt: applications[0]?.createdAt ?? c.createdAt,
+          applications: applications.map(({ assessments: _a, ...a }) => a),
+        };
+      });
+      return q.profile ? rows.filter((r) => r.profile === q.profile) : rows;
+    });
+
+    /** Traz alguém do banco para uma vaga aberta (vai direto para a triagem) */
+    hr.post('/candidates/:id/invite', hrOnly, async (req) => {
+      const { id } = req.params as { id: string };
+      const body = parse(z.object({ jobId: z.string(), note: z.string().max(1000).optional() }), req.body);
+      const [cand, job] = await Promise.all([
+        prisma.candidate.findUnique({ where: { id }, include: { applications: { orderBy: { createdAt: 'desc' }, take: 1 } } }),
+        prisma.job.findUnique({ where: { id: body.jobId } }),
+      ]);
+      if (!cand || !job) throw notFound('Candidato ou vaga não encontrados');
+      if (job.status !== 'OPEN') throw badRequest('A vaga precisa estar aberta');
+      const exists = await prisma.application.findUnique({ where: { jobId_candidateId: { jobId: job.id, candidateId: id } } });
+      if (exists) throw conflict('Essa pessoa já está nessa vaga');
+      const last = cand.applications[0];
+      const created = await prisma.application.create({
+        data: {
+          jobId: job.id,
+          candidateId: id,
+          stage: 'SCREENING',
+          resumePath: last?.resumePath,
+          resumeName: last?.resumeName,
+          source: 'banco',
+          events: { create: { type: 'CREATED', authorId: req.auth.id, body: 'Trazido do banco de talentos', toStage: 'SCREENING' } },
+        },
+      });
+      await sendMail(
+        cand.email,
+        `Uma vaga que combina com você: ${job.title}`,
+        mailLayout(
+          `Olá, ${cand.name.split(' ')[0]}!`,
+          [`Lembramos de você para a vaga ${job.title}.`, body.note || 'Seu perfil chamou nossa atenção e você já está no processo. Em breve entraremos em contato.'],
+          { label: 'Ver a vaga', url: `${env.WEB_URL}/vagas/${job.slug}` },
+        ),
+      ).catch(() => undefined);
+      return created;
     });
 
     hr.patch('/applications/:id/rating', hrOnly, async (req) => {
@@ -570,4 +851,41 @@ export async function recruitmentRoutes(app: FastifyInstance) {
       return { ok: true, whatsappUrl };
     });
   });
+}
+
+/**
+ * Rotina diária dos testes de candidatos: vence convites com prazo esgotado e
+ * manda UM lembrete a quem recebeu o teste há 2 dias ou mais e ainda não respondeu.
+ */
+export async function assessmentHousekeeping() {
+  const expired = await prisma.assessmentInvite.updateMany({ where: { status: 'PENDING', expiresAt: { lt: new Date() } }, data: { status: 'EXPIRED' } });
+  const pending = await prisma.assessmentInvite.findMany({
+    where: { status: 'PENDING', createdAt: { lt: new Date(Date.now() - 2 * 86400000) } },
+    include: {
+      application: {
+        include: { candidate: true, job: true, events: { where: { type: 'ASSESSMENT_SENT', meta: { path: ['reminder'], equals: true } }, select: { id: true } } },
+      },
+    },
+  });
+  let reminded = 0;
+  for (const inv of pending) {
+    const app = inv.application;
+    if (app.events.length || app.stage === 'REJECTED' || app.stage === 'HIRED') continue;
+    const url = assessmentUrl(inv.token);
+    const days = Math.max(1, Math.ceil((inv.expiresAt.getTime() - Date.now()) / 86400000));
+    await sendMail(
+      app.candidate.email,
+      `Lembrete: seu teste para ${app.job.title}`,
+      mailLayout(
+        `Olá, ${app.candidate.name.split(' ')[0]}!`,
+        [`Sua candidatura para ${app.job.title} está esperando o teste de perfil (cerca de 5 minutos).`, `O link vale por mais ${days} dia(s).`],
+        { label: 'Fazer o teste', url },
+      ),
+    ).catch(() => undefined);
+    await prisma.applicationEvent.create({
+      data: { applicationId: app.id, type: 'ASSESSMENT_SENT', body: 'Lembrete automático do teste enviado ao candidato', meta: { url, reminder: true } },
+    });
+    reminded++;
+  }
+  return { expired: expired.count, reminded };
 }

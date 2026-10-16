@@ -443,7 +443,7 @@ export default function Agenda() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-56px-48px)] gap-5">
+    <div className="flex min-h-0 flex-1 gap-5">
       <aside className="hidden w-[248px] shrink-0 flex-col gap-5 xl:flex">
         <Button icon={<Plus className="h-4 w-4" />} onClick={newAtNextSlot} className="w-full">
           Nova reunião

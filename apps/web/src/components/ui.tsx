@@ -104,9 +104,9 @@ export function Panel({ title, subtitle, actions, children, className, bodyClass
   return (
     <section className={clsx('card overflow-hidden', className)}>
       {(title || actions) && (
-        <header className="flex min-h-[52px] items-center gap-3 border-b border-ink-100 px-4 py-2.5">
+        <header className="flex min-h-[56px] items-center gap-3 border-b border-ink-100 px-5 py-3">
           <div className="min-w-0 flex-1">
-            {title && <h2 className="truncate text-[15px] font-semibold text-ink-900">{title}</h2>}
+            {title && <h2 className="truncate text-base font-semibold text-ink-900">{title}</h2>}
             {subtitle && <p className="truncate text-xs text-ink-500">{subtitle}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
@@ -128,7 +128,7 @@ export function Badge({ children, color, tone, dot, className, title }: { childr
   return (
     <span
       title={title}
-      className={clsx('inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-medium', !color && TONES[tone ?? 'neutral'], className)}
+      className={clsx('inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium', !color && TONES[tone ?? 'neutral'], className)}
       style={color ? { background: `${color}17`, color } : undefined}
     >
       {dot && <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />}
@@ -157,6 +157,16 @@ export function Avatar({ user, size = 32, online, className }: { user: Pick<User
       {online !== undefined && (
         <span className={clsx('absolute bottom-0 right-0 rounded-full ring-2 ring-white', online ? 'bg-ok' : 'bg-ink-300')} style={{ width: Math.max(8, size * 0.28), height: Math.max(8, size * 0.28) }} />
       )}
+    </span>
+  );
+}
+
+/** Foto com anel colorido (ex.: cor do perfil). O anel é sombra: não altera o tamanho nem deforma a foto. */
+export function RingAvatar({ user, size = 40, color, className }: { user: Pick<UserLite, 'name' | 'avatarUrl'> & { id?: string }; size?: number; color: string; className?: string }) {
+  const ring = size >= 56 ? 4 : 3;
+  return (
+    <span className={clsx('relative inline-flex shrink-0 rounded-full', className)} style={{ width: size, height: size, boxShadow: `0 0 0 2px #fff, 0 0 0 ${2 + ring}px ${color}` }}>
+      <Avatar user={user} size={size} />
     </span>
   );
 }
@@ -201,10 +211,10 @@ export function EmptyState({ icon, title, text, action, compact }: { icon?: Reac
 
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; eyebrow?: string }) {
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-[22px] font-semibold leading-tight text-ink-900">{title}</h1>
-        {subtitle && <p className="mt-0.5 text-sm text-ink-500">{subtitle}</p>}
+        <h1 className="text-[28px] font-bold leading-[1.1] text-ink-900">{title}</h1>
+        {subtitle && <p className="mt-1.5 text-sm text-ink-500">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -221,13 +231,13 @@ export function StatCard({
   const valueTone = { default: 'text-ink-900', danger: 'text-bad', success: 'text-ok', brand: 'text-brand-600', warn: 'text-warn' }[tone];
   const good = delta !== undefined && delta !== null && (invertDelta ? delta < 0 : delta > 0);
   return (
-    <div className="card px-4 py-3.5">
+    <div className="card px-5 py-4">
       <div className="flex items-center gap-1.5 text-[13px] text-ink-500">
         {icon && <span className="[&>svg]:h-4 [&>svg]:w-4">{icon}</span>}
         {label}
       </div>
       <div className="mt-1.5 flex items-baseline gap-2">
-        <span className={clsx('num text-[26px] font-semibold leading-none tracking-tight', valueTone)}>{value}</span>
+        <span className={clsx('num whitespace-nowrap font-display text-[30px] font-bold leading-none', valueTone)}>{value}</span>
         {delta !== undefined && delta !== null && delta !== 0 && (
           <span className={clsx('num text-xs font-medium', good ? 'text-ok' : 'text-bad')}>
             {delta > 0 ? '▲' : '▼'} {Math.abs(Math.round(delta * 10) / 10)}
@@ -242,7 +252,7 @@ export function StatCard({
 
 export function Tabs<T extends string>({ value, onChange, items, size = 'md' }: { value: T; onChange: (v: T) => void; items: { value: T; label: ReactNode; count?: number }[]; size?: 'sm' | 'md' }) {
   return (
-    <div className="inline-flex rounded-lg border border-ink-200 bg-white p-0.5">
+    <div className="inline-flex rounded-lg bg-ink-100 p-0.5">
       {items.map((it) => (
         <button
           key={it.value}
@@ -251,11 +261,11 @@ export function Tabs<T extends string>({ value, onChange, items, size = 'md' }: 
           className={clsx(
             'inline-flex items-center gap-1.5 rounded-md font-medium transition',
             size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-8 px-3 text-sm',
-            value === it.value ? 'bg-ink-900 text-white' : 'text-ink-600 hover:text-ink-900',
+            value === it.value ? 'bg-white text-ink-900 shadow-sm ring-1 ring-ink-200/70' : 'text-ink-500 hover:text-ink-900',
           )}
         >
           {it.label}
-          {it.count !== undefined && <span className={clsx('num text-xs', value === it.value ? 'text-ink-300' : 'text-ink-400')}>{it.count}</span>}
+          {it.count !== undefined && <span className={clsx('num text-xs', value === it.value ? 'text-brand-600' : 'text-ink-400')}>{it.count}</span>}
         </button>
       ))}
     </div>
@@ -362,18 +372,25 @@ export interface MenuItem {
   danger?: boolean;
   hidden?: boolean;
 }
-export function Menu({ trigger, items, align = 'right', header }: { trigger: (open: boolean) => ReactNode; items: MenuItem[]; align?: 'left' | 'right'; header?: ReactNode }) {
+export function Menu({
+  trigger, items, align = 'right', header, side = 'auto', matchWidth, className,
+}: {
+  trigger: (open: boolean) => ReactNode; items: MenuItem[]; align?: 'left' | 'right'; header?: ReactNode;
+  /** 'top' abre sempre para cima (ex.: rodapé do menu lateral) */
+  side?: 'auto' | 'top'; matchWidth?: boolean; className?: string;
+}) {
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLSpanElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number } | null>(null);
   useLayoutEffect(() => {
     if (!open || !btn.current) return;
     const r = btn.current.getBoundingClientRect();
-    const w = 208;
+    const w = matchWidth ? Math.max(208, r.width) : 208;
     const left = align === 'right' ? Math.max(8, r.right - w) : Math.min(window.innerWidth - w - 8, r.left);
-    const top = r.bottom + 4 + 260 > window.innerHeight ? Math.max(8, r.top - 4 - 260) : r.bottom + 4;
-    setPos({ top, left });
-  }, [open, align]);
+    // Para cima: ancora pela base (não depende da altura do menu), sem "flutuar" longe do botão
+    const up = side === 'top' || r.bottom + 4 + 260 > window.innerHeight;
+    setPos(up ? { bottom: window.innerHeight - r.top + 6, left, width: w } : { top: r.bottom + 4, left, width: w });
+  }, [open, align, side, matchWidth]);
   useEffect(() => {
     if (!open) return;
     const close = () => setOpen(false);
@@ -392,7 +409,7 @@ export function Menu({ trigger, items, align = 'right', header }: { trigger: (op
           e.stopPropagation();
           setOpen((o) => !o);
         }}
-        className="inline-flex"
+        className={clsx('inline-flex', className)}
       >
         {trigger(open)}
       </span>
@@ -400,7 +417,7 @@ export function Menu({ trigger, items, align = 'right', header }: { trigger: (op
         pos &&
         createPortal(
           <div className="fixed inset-0 z-[60]" onMouseDown={() => setOpen(false)}>
-            <div onMouseDown={(e) => e.stopPropagation()} className="fixed w-52 animate-pop overflow-hidden rounded-lg border border-ink-200 bg-white py-1 shadow-pop" style={pos}>
+            <div onMouseDown={(e) => e.stopPropagation()} className="fixed animate-pop overflow-hidden rounded-xl border border-ink-200 bg-white py-1 shadow-pop" style={pos}>
               {header}
               {items
                 .filter((i) => !i.hidden)

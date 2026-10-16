@@ -11,8 +11,9 @@
     @apply font-sans text-[14px] leading-[1.5];
   }
   h1, h2, h3 {
-    @apply font-display font-semibold tracking-[-0.015em];
+    @apply font-display font-semibold tracking-[-0.01em];
   }
+  h1 { font-variation-settings: 'opsz' 48; }
   ::selection {
     @apply bg-brand-100;
   }
@@ -27,7 +28,7 @@
 @layer components {
   /* superfície padrão */
   .card {
-    @apply rounded-xl border border-ink-200 bg-white;
+    @apply rounded-2xl border border-ink-200/80 bg-white shadow-card;
   }
   .input {
     @apply h-9 w-full rounded-lg border border-ink-200 bg-white px-3 text-sm text-ink-900 outline-none transition
@@ -45,8 +46,9 @@
   }
   /* tabela padrão */
   .tbl { @apply w-full text-sm; }
-  .tbl th { @apply h-9 border-b border-ink-200 bg-ink-50 px-3 text-left text-[12px] font-medium text-ink-500 first:pl-4 last:pr-4; }
-  .tbl td { @apply h-12 border-b border-ink-100 px-3 align-middle first:pl-4 last:pr-4; }
+  .tbl th { @apply h-10 whitespace-nowrap border-b border-ink-200 bg-white px-3 text-left text-[12px] font-medium text-ink-500 first:pl-5 last:pr-5; }
+  .tbl td { @apply h-12 border-b border-ink-100 px-3 align-middle first:pl-5 last:pr-5; }
+  .tbl tbody tr { @apply transition-colors hover:bg-ink-50/60; }
   .tbl tbody tr:last-child td { @apply border-b-0; }
   .tbl tbody tr.clickable { @apply cursor-pointer hover:bg-ink-50; }
 

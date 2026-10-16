@@ -3,14 +3,13 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { toast } from 'sonner';
-import { CheckCheck, RefreshCw, Settings2 } from 'lucide-react';
-import { DAY_STATUS_COLOR, DAY_STATUS_LABEL, VALIDATION_STATUS_LABEL, formatMinutes } from '@dumax/shared';
+import { RefreshCw, Settings2 } from 'lucide-react';
+import { DAY_STATUS_COLOR, DAY_STATUS_LABEL, formatMinutes } from '@dumax/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { PontoSummary, TimeDay, TimeEntry, UserLite, WorkSchedule } from '@/lib/types';
 import { fmtDateTime, fmtDayKey, fmtTime } from '@/lib/format';
-import { Avatar, Badge, Button, Checkbox, Field, Input, Modal, PageHeader, PageLoader, Select, Tabs, Textarea } from '@/components/ui';
-import { VALIDATION_COLOR } from '../app/MyPonto';
+import { Avatar, Badge, Button, Input, Modal, PageHeader, PageLoader, Select, Tabs } from '@/components/ui';
 
 interface TodayRow {
   user: UserLite & { department: { name: string; color: string } | null; workSchedule: WorkSchedule | null };
@@ -118,73 +117,54 @@ function TodayView() {
   );
 }
 
-function ValidationView() {
-  const qc = useQueryClient();
-  const [params, setParams] = useSearchParams();
-  const validation = params.get('validation') ?? 'CONTESTED,CONFIRMED,PENDING';
-  const [reviewing, setReviewing] = useState<TimeDay | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
+function DaysView() {
+  const [status, setStatus] = useState('');
+  const [period, setPeriod] = useState('14');
+  const [q, setQ] = useState('');
+  const [page, setPage] = useState(0);
+  const PAGE = 50;
+  const from = new Date(Date.now() - (Number(period) - 1) * 86400000).toLocaleDateString('en-CA');
   const { data, isLoading } = useQuery({
-    queryKey: ['ponto-days', validation],
-    queryFn: () => api.get<{ summary: PontoSummary; days: TimeDay[] }>('/ponto/days', { validation, from: new Date(Date.now() - 30 * 86400000).toLocaleDateString('en-CA') }),
+    queryKey: ['ponto-days', status, period],
+    queryFn: () => api.get<{ summary: PontoSummary; days: TimeDay[] }>('/ponto/days', { status: status || undefined, from }),
   });
-  const bulk = useMutation({
-    mutationFn: () => api.post<{ approved: number }>('/ponto/approve-confirmed', { ids: selected }),
-    onSuccess: (r) => {
-      toast.success(`${r.approved} dia(s) aprovados`);
-      setSelected([]);
-      qc.invalidateQueries({ queryKey: ['ponto-days'] });
-    },
-  });
-  const days = (data?.days ?? []).filter((d) => d.status !== 'OFF');
-  const confirmedIds = days.filter((d) => d.validation === 'CONFIRMED').map((d) => d.id);
+  const days = (data?.days ?? []).filter((d) => d.status !== 'OFF').filter((d) => d.user!.name.toLowerCase().includes(q.toLowerCase()));
 
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Select value={validation} onChange={(e) => setParams({ tab: 'validar', validation: e.target.value })} className="w-64">
-          <option value="CONTESTED,CONFIRMED,PENDING">Tudo que falta aprovar</option>
-          <option value="CONTESTED">Contestados</option>
-          <option value="CONFIRMED">Confirmados pelo colaborador</option>
-          <option value="PENDING">Aguardando colaborador</option>
-          <option value="APPROVED,ADJUSTED">Já aprovados</option>
+        <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }} className="w-48">
+          <option value="">Todas as situações</option>
+          <option value="LATE">Atrasos</option>
+          <option value="ABSENT">Faltas</option>
+          <option value="INCOMPLETE">Incompletos</option>
+          <option value="OK">Regulares</option>
         </Select>
-        {confirmedIds.length > 0 && (
-          <Button variant="secondary" size="sm" onClick={() => setSelected(selected.length ? [] : confirmedIds)}>
-            {selected.length ? 'Limpar seleção' : `Selecionar confirmados (${confirmedIds.length})`}
-          </Button>
-        )}
-        {selected.length > 0 && (
-          <Button size="sm" icon={<CheckCheck className="h-4 w-4" />} loading={bulk.isPending} onClick={() => bulk.mutate()}>
-            Aprovar {selected.length}
-          </Button>
-        )}
+        <Select value={period} onChange={(e) => { setPeriod(e.target.value); setPage(0); }} className="w-40">
+          <option value="7">Últimos 7 dias</option>
+          <option value="14">Últimos 14 dias</option>
+          <option value="30">Últimos 30 dias</option>
+        </Select>
+        <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} placeholder="Buscar pessoa" className="ml-auto h-9 w-56" />
       </div>
       {isLoading ? (
         <PageLoader />
       ) : (
         <div className="card overflow-x-auto">
-          <table className="tbl min-w-[860px]">
+          <table className="tbl min-w-[720px]">
             <thead>
               <tr>
-                <th />
                 <th>Pessoa</th>
                 <th>Dia</th>
                 <th>Entrada / saída</th>
                 <th>Trabalhado</th>
+                <th>Saldo</th>
                 <th>Situação</th>
-                <th>Validação</th>
-                <th />
               </tr>
             </thead>
             <tbody>
-              {days.map((d) => (
-                <tr key={d.id} className={clsx(d.validation === 'CONTESTED' && 'bg-bad-soft/40')}>
-                  <td>
-                    {d.validation === 'CONFIRMED' && (
-                      <Checkbox checked={selected.includes(d.id)} onChange={(v) => setSelected((s) => (v ? [...s, d.id] : s.filter((x) => x !== d.id)))} />
-                    )}
-                  </td>
+              {days.slice(page * PAGE, (page + 1) * PAGE).map((d) => (
+                <tr key={d.id}>
                   <td>
                     <span className="flex items-center gap-2">
                       <Avatar user={d.user!} size={26} /> {d.user!.name}
@@ -194,96 +174,43 @@ function ValidationView() {
                   <td className="num text-xs">
                     {d.firstIn ? fmtTime(d.firstIn) : '--:--'} → {d.lastOut ? fmtTime(d.lastOut) : '--:--'}
                   </td>
-                  <td>{formatMinutes(d.adjustedWorkedMinutes ?? d.workedMinutes)}</td>
+                  <td>{formatMinutes(d.workedMinutes)}</td>
+                  <td className={clsx('num font-medium', d.balanceMinutes < 0 ? 'text-bad' : d.balanceMinutes > 0 ? 'text-ok' : 'text-ink-400')}>{formatMinutes(d.balanceMinutes)}</td>
                   <td>
                     <Badge color={DAY_STATUS_COLOR[d.status]}>
                       {DAY_STATUS_LABEL[d.status]}
                       {d.lateMinutes > 0 && ` ${formatMinutes(d.lateMinutes)}`}
                     </Badge>
                   </td>
-                  <td>
-                    <Badge color={VALIDATION_COLOR[d.validation]}>{VALIDATION_STATUS_LABEL[d.validation]}</Badge>
-                    {d.employeeNote && <p className="mt-0.5 max-w-[220px] text-[11px] italic text-ink-600">“{d.employeeNote}”</p>}
-                  </td>
-                  <td className="text-right">
-                    <Button size="sm" variant={d.validation === 'CONTESTED' ? 'primary' : 'secondary'} onClick={() => setReviewing(d)}>
-                      Revisar
-                    </Button>
-                  </td>
                 </tr>
               ))}
               {!days.length && (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-ink-400">
-                    Nada pendente de validação
+                  <td colSpan={6} className="py-10 text-center text-ink-400">
+                    Nenhum dia encontrado no período
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          {days.length > PAGE && (
+            <div className="flex items-center justify-between border-t border-ink-100 px-5 py-3 text-[13px] text-ink-500">
+              <span className="num">
+                {page * PAGE + 1}–{Math.min((page + 1) * PAGE, days.length)} de {days.length} dias
+              </span>
+              <span className="flex gap-2">
+                <Button size="sm" variant="secondary" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                  Anterior
+                </Button>
+                <Button size="sm" variant="secondary" disabled={(page + 1) * PAGE >= days.length} onClick={() => setPage((p) => p + 1)}>
+                  Próxima
+                </Button>
+              </span>
+            </div>
+          )}
         </div>
       )}
-      {reviewing && <ReviewModal day={reviewing} onClose={() => setReviewing(null)} />}
     </>
-  );
-}
-
-function ReviewModal({ day, onClose }: { day: TimeDay; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [hours, setHours] = useState(String(Math.floor((day.adjustedWorkedMinutes ?? day.workedMinutes) / 60)));
-  const [mins, setMins] = useState(String((day.adjustedWorkedMinutes ?? day.workedMinutes) % 60));
-  const [note, setNote] = useState('');
-  const { data: entries = [] } = useQuery({ queryKey: ['day-entries', day.id], queryFn: () => api.get<TimeEntry[]>(`/ponto/days/${day.id}/entries`) });
-  const review = useMutation({
-    mutationFn: (action: 'APPROVE' | 'ADJUST' | 'REOPEN') =>
-      api.post(`/ponto/days/${day.id}/review`, { action, note: note || undefined, adjustedWorkedMinutes: action === 'ADJUST' ? Number(hours) * 60 + Number(mins) : undefined }),
-    onSuccess: () => {
-      toast.success('Dia revisado');
-      qc.invalidateQueries({ queryKey: ['ponto-days'] });
-      onClose();
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-  return (
-    <Modal open onClose={onClose} title={`${day.user?.name} · ${fmtDayKey(day.date, 'dd/MM/yyyy')}`} size="sm">
-      <div className="space-y-4">
-        <div className="rounded-lg bg-ink-50 p-3 text-sm">
-          <p className="mb-1 text-xs text-ink-500">Batidas</p>
-          {entries.length ? entries.map((e) => <p key={e.id}>{fmtDateTime(e.at)} · {e.type} <span className="text-xs text-ink-400">({e.source})</span></p>) : <p className="text-ink-400">Nenhuma</p>}
-          <p className="mt-2">
-            Trabalhado: <strong>{formatMinutes(day.workedMinutes)}</strong> de {formatMinutes(day.expectedMinutes)} · atraso {formatMinutes(day.lateMinutes)}
-          </p>
-        </div>
-        {day.employeeNote && (
-          <div className="rounded-lg border-l-2 border-bad bg-bad-soft p-3 text-sm">
-            <p className="text-xs font-medium text-bad">Contestação do colaborador</p>
-            <p>“{day.employeeNote}”</p>
-          </div>
-        )}
-        <Field label="Horas trabalhadas corretas (se for ajustar)">
-          <div className="flex items-center gap-2">
-            <Input type="number" min={0} max={23} value={hours} onChange={(e) => setHours(e.target.value)} className="w-20" /> h
-            <Input type="number" min={0} max={59} value={mins} onChange={(e) => setMins(e.target.value)} className="w-20" /> min
-          </div>
-        </Field>
-        <Field label="Observação">
-          <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: confirmado com o Pedro, relógio travado." />
-        </Field>
-        <div className="flex flex-wrap justify-end gap-2">
-          {(day.validation === 'APPROVED' || day.validation === 'ADJUSTED') && (
-            <Button variant="ghost" onClick={() => review.mutate('REOPEN')}>
-              Reabrir
-            </Button>
-          )}
-          <Button variant="secondary" loading={review.isPending} onClick={() => review.mutate('ADJUST')}>
-            Ajustar horas
-          </Button>
-          <Button loading={review.isPending} onClick={() => review.mutate('APPROVE')}>
-            Aprovar
-          </Button>
-        </div>
-      </div>
-    </Modal>
   );
 }
 
@@ -312,7 +239,6 @@ function SummaryView() {
                 <th className="text-right">Atrasos</th>
                 <th className="text-right">Faltas</th>
                 <th className="text-right">Incompletos</th>
-                <th className="text-right">A validar</th>
               </tr>
             </thead>
             <tbody>
@@ -332,7 +258,6 @@ function SummaryView() {
                   <td className="num text-right">{p.lateCount ? <Badge tone="warn">{p.lateCount}</Badge> : 0}</td>
                   <td className="num text-right">{p.absentCount ? <Badge tone="bad">{p.absentCount}</Badge> : 0}</td>
                   <td className="num text-right">{p.incompleteCount}</td>
-                  <td className="num text-right">{p.pendingValidation + p.contested}</td>
                 </tr>
               ))}
             </tbody>
@@ -387,21 +312,21 @@ function IntegrationModal({ onClose }: { onClose: () => void }) {
 export default function PontoAdmin() {
   const { isHR } = useAuth();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get('validation') ? 'validar' : params.get('tab')) ?? 'hoje';
+  const tab = params.get('tab') ?? 'hoje';
   const [integration, setIntegration] = useState(false);
   return (
     <div className="space-y-5">
       <PageHeader
         title="Ponto do time"
-        subtitle="Quem chegou, quem atrasou, banco de horas e validação dos dias."
+        subtitle="Quem chegou, quem atrasou e banco de horas. Os dados vêm direto do sistema de ponto."
         actions={
           <>
             <Tabs
-              value={tab as 'hoje' | 'validar' | 'resumo'}
+              value={tab as 'hoje' | 'dias' | 'resumo'}
               onChange={(t) => setParams({ tab: t })}
               items={[
                 { value: 'hoje', label: 'Hoje' },
-                { value: 'validar', label: 'Validar' },
+                { value: 'dias', label: 'Dias' },
                 { value: 'resumo', label: 'Resumo' },
               ]}
             />
@@ -414,7 +339,7 @@ export default function PontoAdmin() {
         }
       />
       {tab === 'hoje' && <TodayView />}
-      {tab === 'validar' && <ValidationView />}
+      {tab === 'dias' && <DaysView />}
       {tab === 'resumo' && <SummaryView />}
       {integration && <IntegrationModal onClose={() => setIntegration(false)} />}
     </div>

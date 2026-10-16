@@ -81,3 +81,21 @@ export function verifyFileSignature(key: string, exp: string, sig: string) {
   const given = Buffer.from(sig, 'base64url');
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
+
+// ───────────── Fotos de perfil ─────────────
+// Link permanente e impossível de adivinhar (HMAC da chave). A imagem continua
+// criptografada no disco; o link só existe para quem já recebeu o avatarUrl da API.
+const avatarSig = (key: string) => createHmac('sha256', signKey).update(`avatar:${key}`).digest('base64url').slice(0, 32);
+
+export function avatarUrlFor(key: string) {
+  return `/api/avatars/${Buffer.from(key).toString('base64url')}/${avatarSig(key)}`;
+}
+
+/** Devolve a chave do arquivo se o link for válido */
+export function verifyAvatar(encodedKey: string, sig: string): string | null {
+  const key = Buffer.from(encodedKey, 'base64url').toString('utf8');
+  if (!key.startsWith('avatars/')) return null;
+  const expected = Buffer.from(avatarSig(key));
+  const given = Buffer.from(sig);
+  return given.length === expected.length && timingSafeEqual(given, expected) ? key : null;
+}
