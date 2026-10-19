@@ -94,6 +94,9 @@ function AssistantChat({ threadId, onThreadChange }: { threadId: string | null; 
       setMessages((m) => [...m.filter((x) => !x.id.startsWith('tmp-')), ...res.messages]);
       if (res.threadId !== threadId) onThreadChange(res.threadId);
       qc.invalidateQueries({ queryKey: ['ai-threads'] });
+      // a conversa mudou: na próxima vez que for aberta pelo histórico, busca de novo
+      if (res.threadId === threadId) qc.removeQueries({ queryKey: ['ai-thread', threadId], type: 'inactive' });
+      qc.invalidateQueries({ queryKey: ['ai-thread'], refetchType: 'none' });
       if (res.messages.some((m) => m.tools.some((t) => ['criar_demanda', 'agendar_reuniao', 'enviar_mensagem_chat'].includes(t)))) {
         qc.invalidateQueries({ queryKey: ['tasks'] });
         qc.invalidateQueries({ queryKey: ['meetings'] });
@@ -203,6 +206,13 @@ interface Thread {
 
 export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [threadId, setThreadId] = useState<string | null>(null);
+  // a chave só muda quando a pessoa troca de conversa (não quando a conversa nova ganha id)
+  const [chatKey, setChatKey] = useState('new');
+  const open_ = (id: string | null) => {
+    setThreadId(id);
+    setChatKey(id ?? `new-${Date.now()}`);
+    setShowHistory(false);
+  };
   const [showHistory, setShowHistory] = useState(false);
   const qc = useQueryClient();
   const { data: threads = [] } = useQuery({ queryKey: ['ai-threads'], queryFn: () => api.get<Thread[]>('/ai/threads'), enabled: open });
@@ -210,7 +220,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
   const remove = async (id: string) => {
     await api.del(`/ai/threads/${id}`);
     qc.invalidateQueries({ queryKey: ['ai-threads'] });
-    if (id === threadId) setThreadId(null);
+    if (id === threadId) open_(null);
   };
 
   return (
@@ -223,10 +233,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
         </button>
         <button
           title="Nova conversa"
-          onClick={() => {
-            setThreadId(null);
-            setShowHistory(false);
-          }}
+          onClick={() => open_(null)}
           className="rounded-md p-2 text-ink-500 hover:bg-ink-100"
         >
           <Plus className="h-4 w-4" />
@@ -241,10 +248,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             {threads.map((t) => (
               <div key={t.id} className={clsx('group flex items-center rounded-lg', t.id === threadId ? 'bg-ink-100' : 'hover:bg-ink-50')}>
                 <button
-                  onClick={() => {
-                    setThreadId(t.id);
-                    setShowHistory(false);
-                  }}
+                  onClick={() => open_(t.id)}
                   className="min-w-0 flex-1 px-3 py-2 text-left"
                 >
                   <p className="truncate text-sm font-medium">{t.title}</p>
@@ -258,7 +262,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
             {!threads.length && <p className="px-3 py-6 text-center text-sm text-ink-400">Nenhuma conversa ainda.</p>}
           </div>
         ) : (
-          <AssistantChat key={threadId ?? 'new'} threadId={threadId} onThreadChange={setThreadId} />
+          <AssistantChat key={chatKey} threadId={threadId} onThreadChange={setThreadId} />
         )}
       </div>
     </Drawer>

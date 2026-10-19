@@ -144,6 +144,9 @@ export async function aiRoutes(app: FastifyInstance) {
         });
       } catch (err) {
         req.log.error(err, `Falha na IA (${llmProvider})`);
+        // não deixa conversa "fantasma" no histórico: desfaz o que esta pergunta gravou
+        if (!body.threadId) await prisma.aiThread.delete({ where: { id: thread.id } }).catch(() => undefined);
+        else await prisma.aiMessage.deleteMany({ where: { threadId: thread.id, createdAt: { gte: firstNew.createdAt } } });
         if (err instanceof LlmError && err.status === 429)
           throw new HttpError(429, 'A IA atingiu o limite de uso por agora (no plano grátis isso acontece rápido). Tente de novo em alguns minutos.');
         if (err instanceof LlmError && (err.status === 503 || err.status === 500 || err.status === 529))
