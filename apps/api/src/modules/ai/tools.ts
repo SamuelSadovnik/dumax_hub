@@ -1,4 +1,4 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import type { ToolDef } from '../../lib/llm';
 import type { Prisma, TaskStatus } from '@prisma/client';
 import { DAY_STATUS_LABEL, ROLE_LABEL, STAGE_LABEL, TASK_PRIORITY_LABEL, TASK_STATUS_LABEL, formatMinutes } from '@dumax/shared';
 import { prisma } from '../../lib/prisma';
@@ -35,7 +35,7 @@ async function assertCanSee(user: AuthUser, targetId: string) {
   }
 }
 
-export const TOOL_DEFS: Anthropic.Messages.Tool[] = [
+export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'buscar_pessoas',
     description:

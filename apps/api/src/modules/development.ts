@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import type { AuthUser } from '../lib/auth';
 import { prisma, userLite } from '../lib/prisma';
 import { authenticate, canSeeUser, isHR, visibleUserIds } from '../lib/auth';
@@ -9,8 +10,8 @@ import { notify } from '../lib/notify';
 const kindEnum = z.enum(['CURSO', 'PRATICA', 'MENTORIA', 'LEITURA', 'OUTRO']);
 const planInclude = {
   createdBy: { select: userLite },
-  actions: { orderBy: [{ done: 'asc' as const }, { dueDate: { sort: 'asc' as const, nulls: 'last' as const } }, { createdAt: 'asc' as const }] },
-} as const;
+  actions: { orderBy: [{ done: 'asc' }, { dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }] },
+} satisfies Prisma.DevelopmentPlanInclude;
 
 /** Quem vê e edita o PDI de alguém: a própria pessoa, gestores acima dela e o RH */
 async function canAccess(user: AuthUser, userId: string) {

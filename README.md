@@ -75,7 +75,7 @@ Empresa fictícia em Cascavel/PR com 46 pessoas em 7 áreas e 8 times (do estág
 | **Clima** | `/clima`, `/admin/clima` | Pulse toda sexta, média, participação, recorte por área com anonimato mínimo, comentários |
 | **Demandas** | `/demandas` | Lista "Meu trabalho" por urgência ou quadro. Alguém envia para a pessoa ou ela cria para si. Prazo definido por outra pessoa fica travado: quem recebeu pede **prorrogação** e quem enviou aprova ou recusa. Delegar, checklist, comentários, lembrete diário |
 | **Chat** | `/chat` | Estilo WhatsApp: tempo real, lido/entregue, responder, reagir pelo menu da mensagem, editar, apagar, anexos, fixar, arquivar, marcar como não lida, seleção múltipla, aviso no canto com som |
-| **Assistente IA** | botão no canto superior direito | Responde e executa ações (ponto, demandas, reuniões, desempenho, licenças, documentos) **respeitando a hierarquia** |
+| **Assistente IA** | botão no canto superior direito | Responde e executa ações (ponto, demandas, reuniões, desempenho, licenças, documentos) **respeitando a hierarquia**. Funciona com Claude (`ANTHROPIC_API_KEY`) ou Gemini (`GEMINI_API_KEY`, tem plano grátis no AI Studio); escolha com `AI_PROVIDER` no `apps/api/.env` |
 | **Agenda, organograma, mural** | `/agenda`, `/organograma`, `/mural` | Dia/semana/mês com conflitos; organograma com foto, nível do cargo (estágio à diretoria), zoom, arrastar e tela cheia; comunicados (com **leitura obrigatória**: "Li e entendi", pendência na Dashboard e lista de quem falta) e elogios |
 
 ## Segurança

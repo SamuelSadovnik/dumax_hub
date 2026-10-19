@@ -513,10 +513,11 @@ export async function recruitmentRoutes(app: FastifyInstance) {
     hr.post('/jobs', hrOnly, async (req) => {
       const body = parse(jobInput, req.body);
       const slug = `${slugify(body.title)}-${randomBytes(3).toString('hex')}`;
-      const { idealProfile, ...rest } = body;
+      const { idealProfile, scorecardCriteria, ...rest } = body;
       return prisma.job.create({
         data: {
           ...rest,
+          scorecardCriteria: scorecardCriteria ?? undefined,
           idealProfile: idealProfile ? normalizeProfile(idealProfile) : undefined,
           slug,
           createdById: req.auth.id,
@@ -529,11 +530,12 @@ export async function recruitmentRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = parse(jobInput.partial(), req.body);
       const current = await prisma.job.findUniqueOrThrow({ where: { id } });
-      const { idealProfile, ...rest } = body;
+      const { idealProfile, scorecardCriteria, ...rest } = body;
       return prisma.job.update({
         where: { id },
         data: {
           ...rest,
+          ...(scorecardCriteria !== undefined ? { scorecardCriteria: scorecardCriteria ?? Prisma.DbNull } : {}),
           ...(idealProfile !== undefined ? { idealProfile: idealProfile ? normalizeProfile(idealProfile) : Prisma.DbNull } : {}),
           publishedAt: body.status === 'OPEN' && !current.publishedAt ? new Date() : undefined,
         },

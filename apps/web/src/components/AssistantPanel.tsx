@@ -123,7 +123,7 @@ function AssistantChat({ threadId, onThreadChange }: { threadId: string | null; 
             <p className="mt-1 text-sm text-ink-500">Também posso criar demandas, marcar reuniões e mandar mensagens por você. Só vejo o que você tem permissão para ver.</p>
             {status && !status.enabled && (
               <p className="mt-4 rounded-lg border border-warn/30 bg-warn-soft p-3 text-xs text-warn">
-                Assistente desligado: falta a chave <code>ANTHROPIC_API_KEY</code> no arquivo <code>apps/api/.env</code>.
+                Assistente desligado: coloque a chave do Claude (<code>ANTHROPIC_API_KEY</code>) ou do Gemini (<code>GEMINI_API_KEY</code>) no arquivo <code>apps/api/.env</code> e reinicie.
               </p>
             )}
             <div className="mt-5 space-y-1.5">

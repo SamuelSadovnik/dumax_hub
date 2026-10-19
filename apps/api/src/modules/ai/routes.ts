@@ -1,19 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import Anthropic from '@anthropic-ai/sdk';
 import type { Prisma } from '@prisma/client';
 import { ROLE_LABEL } from '@dumax/shared';
 import { prisma } from '../../lib/prisma';
 import { authenticate, type AuthUser } from '../../lib/auth';
 import { HttpError, notFound, parse } from '../../lib/http';
 import { brDateKey, brTime } from '../../lib/dates';
-import { env } from '../../env';
+import { LlmError, chat, llmEnabled, llmMissingKeyHint, llmModel, llmProvider, type Block, type Message } from '../../lib/llm';
 import { TOOL_DEFS, runTool } from './tools';
 
-type MessageParam = Anthropic.Messages.MessageParam;
-type ContentBlockParam = Anthropic.Messages.ContentBlockParam;
+type MessageParam = Message;
+type ContentBlockParam = Block;
 
-const client = env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null;
 const MAX_TOOL_ROUNDS = 8;
 const HISTORY_LIMIT = 30;
 
@@ -51,7 +49,7 @@ function trimHistory(messages: MessageParam[]): MessageParam[] {
   while (start < messages.length) {
     const m = messages[start];
     const isPlainUser =
-      m.role === 'user' && (typeof m.content === 'string' || m.content.every((b) => b.type === 'text'));
+      m.role === 'user' && (typeof m.content === 'string' || m.content.every((b: Block) => b.type === 'text'));
     if (isPlainUser) break;
     start++;
   }
@@ -83,7 +81,7 @@ function toDisplay(rows: { id: string; role: string; content: Prisma.JsonValue; 
 export async function aiRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
 
-  app.get('/status', async () => ({ enabled: Boolean(client), model: env.AI_MODEL }));
+  app.get('/status', async () => ({ enabled: llmEnabled(), provider: llmProvider, model: llmModel }));
 
   app.get('/threads', async (req) =>
     prisma.aiThread.findMany({ where: { userId: req.auth.id }, orderBy: { updatedAt: 'desc' }, take: 50 }),
@@ -105,7 +103,7 @@ export async function aiRoutes(app: FastifyInstance) {
 
   /** Envia uma pergunta. Sem threadId, cria uma conversa nova. */
   app.post('/ask', async (req) => {
-    if (!client) throw new HttpError(503, 'Assistente desativado: configure ANTHROPIC_API_KEY no .env da API.');
+    if (!llmEnabled()) throw new HttpError(503, `Assistente desativado: ${llmMissingKeyHint()}.`);
     const body = parse(z.object({ threadId: z.string().optional(), text: z.string().trim().min(1).max(4000) }), req.body);
     const user = req.auth;
 
@@ -135,36 +133,32 @@ export async function aiRoutes(app: FastifyInstance) {
     const firstNew = await save('user', [{ type: 'text', text: body.text }]);
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      let response: Anthropic.Messages.Message;
+      let response: Awaited<ReturnType<typeof chat>>;
       try {
-        response = await client.messages.create({
-          model: env.AI_MODEL,
-          max_tokens: 2048,
+        response = await chat({
           system: systemPrompt(user, { jobTitle: profile.jobTitle, department: profile.department?.name }),
           tools: TOOL_DEFS,
           messages: trimHistory(messages),
+          maxTokens: 2048,
         });
       } catch (err) {
-        req.log.error(err, 'Falha na API da Anthropic');
+        req.log.error(err, `Falha na IA (${llmProvider})`);
+        if (err instanceof LlmError && err.status === 429)
+          throw new HttpError(429, 'A IA atingiu o limite de uso por agora (no plano grátis isso acontece rápido). Tente de novo em alguns minutos.');
+        if (err instanceof LlmError && (err.status === 401 || err.status === 403 || (err.status === 400 && /api key/i.test(err.message))))
+          throw new HttpError(502, 'A chave da IA foi recusada. Confira a chave no arquivo apps/api/.env.');
         throw new HttpError(502, 'O assistente não conseguiu responder agora. Tente de novo em instantes.');
       }
 
-      // guarda só blocos que a API aceita de volta
-      const content = response.content
-        .filter((b) => b.type === 'text' || b.type === 'tool_use')
-        .map((b) =>
-          b.type === 'text'
-            ? ({ type: 'text', text: b.text } as const)
-            : ({ type: 'tool_use', id: b.id, name: b.name, input: b.input } as const),
-        ) as ContentBlockParam[];
+      const content = response.content as ContentBlockParam[];
       await save('assistant', content.length ? content : [{ type: 'text', text: '…' }]);
 
-      if (response.stop_reason !== 'tool_use') break;
+      if (!response.wantsTools) break;
 
       const results: ContentBlockParam[] = [];
       for (const block of response.content) {
         if (block.type !== 'tool_use') continue;
-        const r = await runTool(user, block.name, block.input as Record<string, unknown>);
+        const r = await runTool(user, block.name, block.input);
         req.log.info({ tool: block.name, user: user.id, error: r.isError }, 'ai tool');
         results.push({ type: 'tool_result', tool_use_id: block.id, content: r.content, is_error: r.isError });
       }

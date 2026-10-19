@@ -1,23 +1,15 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { env } from '../env';
+import { chat, llmEnabled } from './llm';
 
-const client = env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }) : null;
-
-export const aiEnabled = () => Boolean(client);
+export const aiEnabled = llmEnabled;
 
 /**
- * Pede uma resposta em JSON ao Claude. Devolve null se a IA estiver desligada
- * (sem ANTHROPIC_API_KEY) ou se algo falhar — quem chama segue sem a IA.
+ * Pede uma resposta em JSON à IA configurada (Claude ou Gemini). Devolve null se a
+ * IA estiver desligada (sem chave) ou se algo falhar — quem chama segue sem a IA.
  */
 export async function aiJson<T>(system: string, prompt: string, maxTokens = 1200): Promise<T | null> {
-  if (!client) return null;
+  if (!llmEnabled()) return null;
   try {
-    const res = await client.messages.create({
-      model: env.AI_MODEL,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const res = await chat({ system, messages: [{ role: 'user', content: prompt }], maxTokens });
     const text = res.content.map((c) => (c.type === 'text' ? c.text : '')).join('');
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');

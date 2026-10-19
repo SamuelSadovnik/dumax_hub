@@ -10,3 +10,5 @@ coverage
 !.env.example
 _to_delete
 *.tar.gz
+
+iniciar.log

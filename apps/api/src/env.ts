@@ -29,8 +29,11 @@ const schema = z.object({
   DATA_ENCRYPTION_KEY: z.string().optional(),
 
   // Assistente IA
+  // AI_PROVIDER: anthropic (Claude) ou gemini (Google). Sem ele, usa a chave que existir.
+  AI_PROVIDER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['anthropic', 'gemini']).optional()),
   ANTHROPIC_API_KEY: z.string().optional(),
-  AI_MODEL: z.string().default('claude-sonnet-5-5'),
+  GEMINI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);
