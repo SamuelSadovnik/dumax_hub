@@ -38,7 +38,7 @@ const TOOL_LABEL: Record<string, string> = {
 const SUGGESTIONS = {
   EMPLOYEE: ['Quais demandas minhas estão atrasadas?', 'Como está meu banco de horas este mês?', 'Marque uma reunião amanhã às 10h para revisar a proposta', 'Tenho documento para assinar?'],
   MANAGER: ['Quem do meu time não está sendo produtivo?', 'Quem chegou atrasado hoje?', 'Quantas demandas a Luiza tem abertas?', 'Marque uma reunião amanhã às 10h com o time'],
-  HR: ['Quem tem mais horas sem atividade registrada no mês?', 'Quais licenças vencem nos próximos 60 dias?', 'Como está o clima nas últimas semanas?', 'Quantos candidatos temos por etapa?'],
+  HR: ['Quem chegou atrasado hoje?', 'Quais licenças vencem nos próximos 60 dias?', 'Como está o clima nas últimas semanas?', 'Quantos candidatos temos por etapa?'],
 };
 
 function Markdown({ text }: { text: string }) {
@@ -85,7 +85,7 @@ function AssistantChat({ threadId, onThreadChange }: { threadId: string | null; 
   }, [messages.length]);
 
   const ask = useMutation({
-    mutationFn: (q: string) => api.post<{ threadId: string; messages: AiDisplayMessage[] }>('/ai/ask', { threadId, text: q }),
+    mutationFn: (q: string) => api.post<{ threadId: string; messages: AiDisplayMessage[] }>('/ai/ask', { ...(threadId ? { threadId } : {}), text: q }),
     onMutate: (q) => {
       setError(null);
       setMessages((m) => [...m, { id: `tmp-${Date.now()}`, role: 'user', text: q, tools: [], createdAt: new Date().toISOString() }]);

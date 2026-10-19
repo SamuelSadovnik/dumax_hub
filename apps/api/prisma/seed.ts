@@ -923,7 +923,7 @@ async function main() {
   await prisma.notification.createMany({ data: notes });
 
   // ═════════ Recrutamento: perguntas, avaliações e indicações ═════════
-  console.log('  1:1, PDI, avaliações de entrevista e indicações…');
+  console.log('  avaliações de entrevista e indicações…');
   await prisma.job.updateMany({ where: { status: 'OPEN' }, data: { scorecardCriteria: DEFAULT_SCORECARD_CRITERIA } });
   const salesJob = await prisma.job.findFirst({ where: { title: { startsWith: 'Executivo(a) de Vendas' } } });
   if (salesJob) {
@@ -963,72 +963,6 @@ async function main() {
   const referrers = [u.luiza, u.luiza, u.rodrigo, u.ana, u.jessica, u.eduardo];
   for (const [i, a] of referrable.entries()) {
     await prisma.application.update({ where: { id: a.id }, data: { referredById: referrers[i], source: 'indicacao' } });
-  }
-
-  // ═════════ 1:1 ═════════
-  const ooPairs: [string, string][] = PEOPLE.filter((p) => p.mgr === 'gestor').map((p) => ['gestor', p.key]);
-  for (const [i, [mk, rk]] of ooPairs.entries()) {
-    const managerId = u[mk];
-    const reportId = u[rk];
-    const past = await prisma.oneOnOne.create({
-      data: {
-        managerId,
-        reportId,
-        scheduledAt: at(NOW, -14 + i),
-        status: 'DONE',
-        notes: 'Conversamos sobre a carteira do mês e as prioridades da próxima quinzena. Clima bom, sem bloqueios.',
-        createdAt: at(NOW, -16 + i),
-      },
-    });
-    await prisma.oneOnOneItem.createMany({
-      data: [
-        { oneOnOneId: past.id, authorId: reportId, kind: 'TOPIC', text: 'Clientes que estão demorando para responder a proposta', done: true },
-        { oneOnOneId: past.id, authorId: managerId, kind: 'TOPIC', text: 'Feedback da última visita', done: true },
-        { oneOnOneId: past.id, authorId: managerId, kind: 'ACTION', text: 'Atualizar o pipeline no CRM até sexta', ownerId: reportId, dueAt: at(NOW, -2 - i), done: i % 2 === 0 },
-        { oneOnOneId: past.id, authorId: reportId, kind: 'ACTION', text: 'Liberar desconto especial para a Cooperativa Coopavel', ownerId: managerId, dueAt: at(NOW, 3), done: false },
-      ],
-    });
-    const next = new Date(TODAY);
-    next.setDate(next.getDate() + 2 + i);
-    next.setHours(10 + (i % 4), 0, 0, 0);
-    const upcoming = await prisma.oneOnOne.create({ data: { managerId, reportId, scheduledAt: next } });
-    await prisma.oneOnOneItem.createMany({
-      data: [
-        { oneOnOneId: upcoming.id, authorId: reportId, kind: 'TOPIC', text: pick(['Quero conversar sobre a meta do próximo trimestre', 'Ideia para reativar clientes parados', 'Treinamento de negociação']) },
-        { oneOnOneId: upcoming.id, authorId: managerId, kind: 'TOPIC', text: 'Como foi a semana e o que está travando' },
-      ],
-    });
-  }
-
-  // ═════════ PDI ═════════
-  const PDIS = [
-    { key: 'luiza', by: 'gestor', title: 'Assumir a liderança de Contas Estratégicas até junho', focus: 'Liderança', due: 240, actions: [
-      { text: 'Curso de liderança para novos gestores (online, 20h)', kind: 'CURSO', due: 40, done: true },
-      { text: 'Conduzir a reunião semanal do time de contas', kind: 'PRATICA', due: 60, done: true },
-      { text: 'Mentoria quinzenal com o Marcos', kind: 'MENTORIA', due: 120, done: false },
-      { text: 'Ler “O gerente minuto”', kind: 'LEITURA', due: 30, done: false },
-    ] },
-    { key: 'rodrigo', by: 'gestor', title: 'Melhorar a taxa de fechamento em negociações grandes', focus: 'Vendas', due: 120, actions: [
-      { text: 'Acompanhar o Eduardo em 3 negociações acima de R$ 50 mil', kind: 'PRATICA', due: 45, done: false },
-      { text: 'Treinamento de negociação do Sebrae', kind: 'CURSO', due: 25, done: false },
-    ] },
-    { key: 'ana', by: 'tech', title: 'Ganhar autonomia em arquitetura de sistemas', focus: 'Técnico', due: 180, actions: [
-      { text: 'Desenhar a arquitetura da integração com o ERP', kind: 'PRATICA', due: 30, done: true },
-      { text: 'Apresentar a proposta para o time', kind: 'PRATICA', due: 45, done: false },
-    ] },
-  ] as const;
-  for (const p of PDIS) {
-    await prisma.developmentPlan.create({
-      data: {
-        userId: u[p.key],
-        createdById: u[p.by],
-        title: p.title,
-        focus: p.focus,
-        dueDate: addDays(TODAY, p.due),
-        createdAt: at(NOW, -30),
-        actions: { create: p.actions.map((a) => ({ text: a.text, kind: a.kind, dueDate: addDays(TODAY, a.due - 50), done: a.done, doneAt: a.done ? at(NOW, -int(2, 20)) : null })) },
-      },
-    });
   }
 
   // ═════════ Comunicado de leitura obrigatória ═════════

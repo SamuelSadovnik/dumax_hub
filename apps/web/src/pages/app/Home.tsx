@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowUpRight, BookOpenCheck, CalendarClock, Handshake, CalendarDays, Camera, CheckCircle2, FileSignature, Heart, ListChecks, MessageCircle, ShieldAlert, Smile, Target, Video } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BookOpenCheck, CalendarClock, CalendarDays, Camera, CheckCircle2, FileSignature, Heart, ListChecks, MessageCircle, ShieldAlert, Smile, Target, Video } from 'lucide-react';
 import { FLAG_COLOR, LICENSE_STATE_COLOR, TASK_PRIORITY_COLOR, formatGoalValue, type FlagSeverity } from '@dumax/shared';
 import { api } from '@/lib/api';
 import { useMe } from '@/lib/auth';
@@ -73,19 +73,6 @@ export default function Home() {
       ),
       to: `/demandas?task=${r.task.id}`,
       cta: 'Responder',
-    })),
-    ...(inbox.oneOnOneActions ?? []).map((a) => ({
-      key: `oo-${a.id}`,
-      icon: <Handshake />,
-      tone: (a.dueAt && new Date(a.dueAt) < new Date() ? 'bad' : 'brand') as 'bad' | 'brand',
-      text: (
-        <>
-          Combinado do 1:1: <strong className="font-medium text-ink-900">{a.text}</strong>
-          {a.dueAt && <> · até {fmtDateShort(a.dueAt)}</>}
-        </>
-      ),
-      to: `/1-1?com=${a.withUserId}`,
-      cta: 'Abrir',
     })),
     ...inbox.documentsToSign.map((d) => ({
       key: `doc-${d.id}`,

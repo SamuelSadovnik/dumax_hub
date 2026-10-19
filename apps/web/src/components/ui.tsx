@@ -138,13 +138,13 @@ export function Badge({ children, color, tone, dot, className, title }: { childr
 }
 
 const AVATAR_COLORS = ['#2D3FE0', '#0E8A8A', '#7C5CFF', '#C2410C', '#1F9254', '#BE185D', '#4F46E5', '#B45309'];
-export function Avatar({ user, size = 32, online, className }: { user: Pick<UserLite, 'name' | 'avatarUrl'> & { id?: string }; size?: number; online?: boolean; className?: string }) {
+export function Avatar({ user, size = 32, online, className, color: forced }: { user: Pick<UserLite, 'name' | 'avatarUrl'> & { id?: string }; size?: number; online?: boolean; className?: string; /** cor fixa das iniciais (ex.: cor do perfil) */ color?: string }) {
   const color = useMemo(() => {
     const key = user.id ?? user.name;
     let h = 0;
     for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-    return AVATAR_COLORS[h % AVATAR_COLORS.length];
-  }, [user.id, user.name]);
+    return forced ?? AVATAR_COLORS[h % AVATAR_COLORS.length];
+  }, [user.id, user.name, forced]);
   return (
     <span className={clsx('relative inline-flex shrink-0', className)} style={{ width: size, height: size }}>
       {user.avatarUrl ? (
@@ -166,16 +166,16 @@ export function RingAvatar({ user, size = 40, color, className }: { user: Pick<U
   const ring = size >= 56 ? 4 : 3;
   return (
     <span className={clsx('relative inline-flex shrink-0 rounded-full', className)} style={{ width: size, height: size, boxShadow: `0 0 0 2px #fff, 0 0 0 ${2 + ring}px ${color}` }}>
-      <Avatar user={user} size={size} />
+      <Avatar user={user} size={size} color={color} />
     </span>
   );
 }
 
-export function AvatarStack({ users, max = 4, size = 24 }: { users: UserLite[]; max?: number; size?: number }) {
+export function AvatarStack({ users, max = 4, size = 24, color }: { users: UserLite[]; max?: number; size?: number; color?: string }) {
   return (
     <div className="flex -space-x-1.5">
       {users.slice(0, max).map((u) => (
-        <Avatar key={u.id} user={u} size={size} className="rounded-full ring-2 ring-white" />
+        <Avatar key={u.id} user={u} size={size} color={color} className="rounded-full ring-2 ring-white" />
       ))}
       {users.length > max && (
         <span className="flex items-center justify-center rounded-full bg-ink-100 text-2xs font-semibold text-ink-600 ring-2 ring-white" style={{ width: size, height: size }}>

@@ -115,17 +115,8 @@ export async function inboxRoutes(app: FastifyInstance) {
       select: { id: true, title: true, createdAt: true },
     });
 
-    // Itens de ação de 1:1 sob minha responsabilidade
-    const oneOnOneActions = await prisma.oneOnOneItem.findMany({
-      where: { kind: 'ACTION', done: false, ownerId: me.id },
-      orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }],
-      take: 5,
-      select: { id: true, text: true, dueAt: true, oneOnOne: { select: { managerId: true, reportId: true } } },
-    });
-
     return {
       mustRead,
-      oneOnOneActions: oneOnOneActions.map((a) => ({ id: a.id, text: a.text, dueAt: a.dueAt, withUserId: a.oneOnOne.managerId === me.id ? a.oneOnOne.reportId : a.oneOnOne.managerId })),
       reviews,
       celebrations,
       extensionRequests: extensions,

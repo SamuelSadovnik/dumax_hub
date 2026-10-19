@@ -10,6 +10,7 @@ import { useUsers } from '@/lib/hooks';
 import type { Announcement, Kudos, UserLite } from '@/lib/types';
 import { fromNow } from '@/lib/format';
 import { Avatar, Badge, Button, Checkbox, EmptyState, Field, Input, Modal, PageHeader, Panel, Select, Textarea, UserPicker } from '@/components/ui';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 export default function Mural() {
   const me = useMe();
@@ -69,7 +70,7 @@ export default function Mural() {
     qc.invalidateQueries({ queryKey: ['announcements'] });
   };
   const removeAnn = async (a: Announcement) => {
-    if (!confirm('Excluir comunicado?')) return;
+    if (!(await confirmDialog({ title: `Excluir “${a.title}”?`, description: 'O comunicado sai do mural de todo mundo.', confirmLabel: 'Excluir', tone: 'danger' }))) return;
     await api.del(`/feed/announcements/${a.id}`);
     qc.invalidateQueries({ queryKey: ['announcements'] });
   };

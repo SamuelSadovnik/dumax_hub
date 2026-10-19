@@ -9,6 +9,7 @@ import { useUsers } from '@/lib/hooks';
 import type { Goal } from '@/lib/types';
 import { fmtDate, fmtDateTime, todayKey } from '@/lib/format';
 import { Avatar, Badge, Button, Drawer, EmptyState, Field, Input, Menu, Modal, PageHeader, PageLoader, ProgressBar, Select, Tabs, Textarea, UserPicker } from '@/components/ui';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 function goalState(g: Goal) {
   if (g.status === 'COMPLETED') return { label: 'Concluída', tone: 'ok' as const, color: '#1F9254' };
@@ -144,7 +145,7 @@ export default function Goals({ scope }: { scope: 'mine' | 'team' }) {
     qc.invalidateQueries({ queryKey: ['goals'] });
   };
   const remove = async (g: Goal) => {
-    if (!confirm('Excluir esta meta e o histórico de atualizações?')) return;
+    if (!(await confirmDialog({ title: `Excluir a meta “${g.title}”?`, description: 'O histórico de atualizações vai junto. Se ela só não faz mais sentido, prefira cancelar.', confirmLabel: 'Excluir meta', tone: 'danger' }))) return;
     await api.del(`/goals/${g.id}`);
     qc.invalidateQueries({ queryKey: ['goals'] });
   };

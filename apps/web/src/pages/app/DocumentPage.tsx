@@ -9,6 +9,7 @@ import { api, errorMessage, tokenStore } from '@/lib/api';
 import type { DocumentItem } from '@/lib/types';
 import { fmtBytes, fmtDateTime } from '@/lib/format';
 import { Avatar, Badge, Button, PageLoader, Panel } from '@/components/ui';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 const EVENT_LABEL: Record<string, string> = {
   CREATED: 'criou o documento',
@@ -63,7 +64,7 @@ export default function DocumentPage() {
     }
   };
   const cancel = async () => {
-    if (!confirm('Cancelar este documento? Quem ainda não assinou não poderá mais assinar.')) return;
+    if (!(await confirmDialog({ title: 'Cancelar este documento?', description: 'Quem ainda não assinou não vai mais conseguir assinar. As assinaturas já feitas ficam registradas.', confirmLabel: 'Cancelar documento', cancelLabel: 'Manter', tone: 'danger' }))) return;
     await api.post(`/documents/${doc.id}/cancel`);
     qc.invalidateQueries({ queryKey: ['document', id] });
     qc.invalidateQueries({ queryKey: ['documents'] });

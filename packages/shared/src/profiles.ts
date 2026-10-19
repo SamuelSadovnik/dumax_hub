@@ -24,7 +24,7 @@ export const PROFILES: Record<ProfileKey, ProfileMeta> = {
     key: 'EXECUTOR',
     label: 'Executor',
     disc: 'D',
-    color: '#ef4444',
+    color: '#E5484D',
     tagline: 'Foco em resultado e ação',
     description:
       'Direto, competitivo e orientado a metas. Toma decisões rápidas, gosta de desafios e de ter autonomia.',
@@ -36,7 +36,7 @@ export const PROFILES: Record<ProfileKey, ProfileMeta> = {
     key: 'COMUNICADOR',
     label: 'Comunicador',
     disc: 'I',
-    color: '#f59e0b',
+    color: '#E39300',
     tagline: 'Foco em pessoas e influência',
     description:
       'Extrovertido, otimista e persuasivo. Cria relacionamentos com facilidade, engaja times e vende ideias.',
@@ -48,7 +48,7 @@ export const PROFILES: Record<ProfileKey, ProfileMeta> = {
     key: 'PLANEJADOR',
     label: 'Planejador',
     disc: 'S',
-    color: '#10b981',
+    color: '#12A27A',
     tagline: 'Foco em estabilidade e cooperação',
     description:
       'Paciente, leal e consistente. Gosta de ambientes estáveis, trabalha bem em equipe e dá suporte ao time.',
@@ -60,7 +60,7 @@ export const PROFILES: Record<ProfileKey, ProfileMeta> = {
     key: 'ANALISTA',
     label: 'Analista',
     disc: 'C',
-    color: '#3b82f6',
+    color: '#3E63DD',
     tagline: 'Foco em qualidade e precisão',
     description:
       'Detalhista, lógico e criterioso. Valoriza dados, regras e qualidade. Prefere decidir com segurança.',

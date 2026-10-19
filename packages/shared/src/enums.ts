@@ -264,7 +264,3 @@ export const RECOMMENDATION_COLOR: Record<Recommendation, string> = { STRONG_NO:
 export const RATING_LABEL: Record<number, string> = { 1: 'Fraco', 2: 'Abaixo do esperado', 3: 'Bom', 4: 'Excelente' };
 export const DEFAULT_SCORECARD_CRITERIA = ['Comunicação', 'Experiência na função', 'Resolução de problemas', 'Alinhamento com a cultura', 'Motivação para a vaga'];
 
-// ───────────── PDI ─────────────
-export const DEV_ACTION_KINDS = ['CURSO', 'PRATICA', 'MENTORIA', 'LEITURA', 'OUTRO'] as const;
-export type DevActionKind = (typeof DEV_ACTION_KINDS)[number];
-export const DEV_ACTION_LABEL: Record<DevActionKind, string> = { CURSO: 'Curso', PRATICA: 'Prática no trabalho', MENTORIA: 'Mentoria', LEITURA: 'Leitura', OUTRO: 'Outro' };

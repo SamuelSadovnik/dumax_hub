@@ -27,8 +27,6 @@ import { timelogRoutes } from './modules/performance/timelogs';
 import { goalRoutes } from './modules/performance/goals';
 import { documentRoutes } from './modules/documents';
 import { licenseRoutes } from './modules/licenses';
-import { oneOnOneRoutes } from './modules/oneonones';
-import { developmentRoutes } from './modules/development';
 import { inboxRoutes } from './modules/inbox';
 import { profileRoutes } from './modules/profiles';
 
@@ -119,8 +117,6 @@ await app.register(documentRoutes, { prefix: '/api' }); // /api/documents e /api
 await app.register(licenseRoutes, { prefix: '/api/licenses' });
 await app.register(inboxRoutes, { prefix: '/api/inbox' });
 await app.register(profileRoutes, { prefix: '/api/profiles' });
-await app.register(oneOnOneRoutes, { prefix: '/api/one-on-ones' });
-await app.register(developmentRoutes, { prefix: '/api/pdi' });
 
 // Checagem rápida do banco na subida, com mensagem clara no terminal
 try {

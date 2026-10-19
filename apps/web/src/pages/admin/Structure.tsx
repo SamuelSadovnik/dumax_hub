@@ -6,6 +6,7 @@ import { api, errorMessage } from '@/lib/api';
 import { useUsers } from '@/lib/hooks';
 import type { Department, Team } from '@/lib/types';
 import { Avatar, AvatarStack, Button, Field, Input, Modal, PageHeader, PageLoader, Panel, Select, UserPicker } from '@/components/ui';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 const COLORS = ['#2D3FE0', '#1F9254', '#C77700', '#7C3AED', '#D93036', '#0E8C9C', '#DB2777', '#0D1330'];
 
@@ -116,12 +117,12 @@ export default function Structure() {
   const [teamEdit, setTeamEdit] = useState<Team | null | undefined>(undefined);
 
   const removeDept = async (d: Department) => {
-    if (!confirm(`Excluir a área ${d.name}? As pessoas ficam sem área.`)) return;
+    if (!(await confirmDialog({ title: `Excluir a área ${d.name}?`, description: 'As pessoas dessa área ficam sem área até você mover para outra.', confirmLabel: 'Excluir área', tone: 'danger' }))) return;
     await api.del(`/org/departments/${d.id}`);
     qc.invalidateQueries({ queryKey: ['departments'] });
   };
   const removeTeam = async (t: Team) => {
-    if (!confirm(`Excluir o time ${t.name}?`)) return;
+    if (!(await confirmDialog({ title: `Excluir o time ${t.name}?`, description: 'As pessoas continuam no sistema, só deixam de fazer parte desse time.', confirmLabel: 'Excluir time', tone: 'danger' }))) return;
     await api.del(`/org/teams/${t.id}`);
     qc.invalidateQueries({ queryKey: ['teams'] });
   };

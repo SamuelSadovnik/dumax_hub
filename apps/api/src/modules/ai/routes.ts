@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma';
 import { authenticate, type AuthUser } from '../../lib/auth';
 import { HttpError, notFound, parse } from '../../lib/http';
 import { brDateKey, brTime } from '../../lib/dates';
+import { isDev } from '../../env';
 import { LlmError, chat, llmEnabled, llmMissingKeyHint, llmModel, llmProvider, type Block, type Message } from '../../lib/llm';
 import { TOOL_DEFS, runTool } from './tools';
 
@@ -104,7 +105,7 @@ export async function aiRoutes(app: FastifyInstance) {
   /** Envia uma pergunta. Sem threadId, cria uma conversa nova. */
   app.post('/ask', async (req) => {
     if (!llmEnabled()) throw new HttpError(503, `Assistente desativado: ${llmMissingKeyHint()}.`);
-    const body = parse(z.object({ threadId: z.string().optional(), text: z.string().trim().min(1).max(4000) }), req.body);
+    const body = parse(z.object({ threadId: z.string().nullish(), text: z.string().trim().min(1).max(4000) }), req.body);
     const user = req.auth;
 
     const thread = body.threadId
@@ -145,9 +146,12 @@ export async function aiRoutes(app: FastifyInstance) {
         req.log.error(err, `Falha na IA (${llmProvider})`);
         if (err instanceof LlmError && err.status === 429)
           throw new HttpError(429, 'A IA atingiu o limite de uso por agora (no plano grátis isso acontece rápido). Tente de novo em alguns minutos.');
+        if (err instanceof LlmError && (err.status === 503 || err.status === 500 || err.status === 529))
+          throw new HttpError(503, 'A IA está sobrecarregada neste momento. Tente de novo em um minuto.');
         if (err instanceof LlmError && (err.status === 401 || err.status === 403 || (err.status === 400 && /api key/i.test(err.message))))
           throw new HttpError(502, 'A chave da IA foi recusada. Confira a chave no arquivo apps/api/.env.');
-        throw new HttpError(502, 'O assistente não conseguiu responder agora. Tente de novo em instantes.');
+        const detail = isDev && err instanceof Error ? ` (${llmProvider}: ${err.message.slice(0, 300)})` : '';
+        throw new HttpError(502, `O assistente não conseguiu responder agora. Tente de novo em instantes.${detail}`);
       }
 
       const content = response.content as ContentBlockParam[];

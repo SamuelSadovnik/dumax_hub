@@ -16,6 +16,7 @@ import { askNotificationPermission } from '@/lib/notifier';
 import type { ChatMessage, ConversationSummary, DirectoryUser } from '@/lib/types';
 import { chatStamp, dayDivider, fmtBytes, fmtTime, fromNow } from '@/lib/format';
 import { Avatar, Button, Checkbox, Input, Menu, Spinner, UserPicker } from '@/components/ui';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const EMOJI_GRID = [
@@ -312,11 +313,13 @@ function InfoPanel({ conv, onClose, online }: { conv: ConversationSummary; onClo
     refresh();
   };
   const removeMember = async (id: string) => {
+    const who = conv.members?.find((m) => m.id === id)?.name.split(' ')[0] ?? 'essa pessoa';
+    if (!(await confirmDialog({ title: `Remover ${who} do grupo?`, description: 'Ela deixa de ver as mensagens novas do grupo.', confirmLabel: 'Remover', tone: 'danger' }))) return;
     await api.patch(`/chat/groups/${conv.id}`, { removeMemberIds: [id] });
     refresh();
   };
   const leave = async () => {
-    if (!confirm('Sair do grupo?')) return;
+    if (!(await confirmDialog({ title: 'Sair do grupo?', description: 'Você deixa de receber as mensagens. Para voltar, alguém do grupo precisa te adicionar.', confirmLabel: 'Sair do grupo', tone: 'warn' }))) return;
     await api.post(`/chat/conversations/${conv.id}/leave`);
     refresh();
     setParams({});
@@ -694,7 +697,9 @@ function ConversationView({ conv, online, onBack, typing }: { conv: Conversation
                         setText(m.body ?? '');
                         inputRef.current?.focus();
                       }}
-                      onDelete={() => confirm('Apagar esta mensagem para todos?') && api.del(`/chat/messages/${m.id}`)}
+                      onDelete={async () => {
+                        if (await confirmDialog({ title: 'Apagar esta mensagem?', description: 'Ela some para todos na conversa.', confirmLabel: 'Apagar', tone: 'danger' })) await api.del(`/chat/messages/${m.id}`);
+                      }}
                     />
                   </Fragment>
                 );

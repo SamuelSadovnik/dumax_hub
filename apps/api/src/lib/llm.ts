@@ -30,7 +30,7 @@ export class LlmError extends Error {
   }
 }
 
-const DEFAULT_MODEL: Record<Provider, string> = { anthropic: 'claude-sonnet-5-5', gemini: 'gemini-2.5-flash' };
+const DEFAULT_MODEL: Record<Provider, string> = { anthropic: 'claude-sonnet-5-5', gemini: 'gemini-3.8-flash' };
 const MODEL_PREFIX: Record<Provider, RegExp> = { anthropic: /^claude/i, gemini: /^(gemini|gemma)/i };
 
 export const llmProvider: Provider | null =
@@ -159,16 +159,23 @@ async function geminiChat({ system, messages, tools, maxTokens = 2048 }: ChatInp
       : {}),
   };
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(llmModel!)}:generateContent`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY! },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => ({}))) as {
-    candidates?: { content?: { parts?: GPart[] }; finishReason?: string }[];
-    error?: { message?: string };
-  };
-  if (!res.ok) throw new LlmError(json.error?.message ?? `Gemini respondeu ${res.status}`, res.status);
+  type GResponse = { candidates?: { content?: { parts?: GPart[] }; finishReason?: string }[]; error?: { message?: string } };
+  let json: GResponse = {};
+  // o Gemini às vezes responde "sobrecarregado" (500/503): tenta de novo algumas vezes
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(llmModel!)}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY! },
+      body: JSON.stringify(body),
+    });
+    json = (await res.json().catch(() => ({}))) as GResponse;
+    if (res.ok) break;
+    if ((res.status === 500 || res.status === 503) && attempt < 3) {
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+      continue;
+    }
+    throw new LlmError(json.error?.message ?? `Gemini respondeu ${res.status}`, res.status);
+  }
 
   const parts = json.candidates?.[0]?.content?.parts ?? [];
   const content = parts

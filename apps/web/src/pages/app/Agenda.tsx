@@ -15,6 +15,7 @@ import { useUsers } from '@/lib/hooks';
 import type { Meeting } from '@/lib/types';
 import { fmtTime, isoToLocalInput, localInputToIso } from '@/lib/format';
 import { Avatar, Badge, Button, Field, Input, Modal, Select, Tabs, Textarea, UserPicker } from '@/components/ui';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 type View = 'day' | 'week' | 'month';
 const START_HOUR = 7;
@@ -133,7 +134,7 @@ function MeetingDetail({ m, onClose }: { m: Meeting; onClose: () => void }) {
     refresh();
   };
   const cancel = async () => {
-    if (!confirm('Cancelar esta reunião para todos os participantes?')) return;
+    if (!(await confirmDialog({ title: 'Cancelar esta reunião?', description: 'Ela sai da agenda de todos os participantes e eles recebem um aviso.', confirmLabel: 'Cancelar reunião', cancelLabel: 'Manter', tone: 'danger' }))) return;
     await api.post(`/meetings/${m.id}/cancel`);
     refresh();
     onClose();

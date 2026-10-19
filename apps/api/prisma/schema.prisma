@@ -213,12 +213,6 @@ model User {
 
   referrals               Application[]        @relation("ApplicationReferrer")
   scorecards              InterviewScorecard[]
-  oneOnOnesAsManager      OneOnOne[]           @relation("OneOnOneManager")
-  oneOnOnesAsReport       OneOnOne[]           @relation("OneOnOneReport")
-  oneOnOneItems           OneOnOneItem[]       @relation("OneOnOneItemAuthor")
-  oneOnOneItemsOwned      OneOnOneItem[]       @relation("OneOnOneItemOwner")
-  developmentPlans        DevelopmentPlan[]    @relation("PlanOwner")
-  developmentPlansCreated DevelopmentPlan[]    @relation("PlanCreator")
   announcementReads       AnnouncementRead[]
 
   @@map("users")
@@ -1072,81 +1066,6 @@ model InterviewScorecard {
 
   @@unique([applicationId, authorId])
   @@map("interview_scorecards")
-}
-
-// ───────────── 1:1 ─────────────
-
-model OneOnOne {
-  id          String         @id @default(cuid())
-  managerId   String
-  manager     User           @relation("OneOnOneManager", fields: [managerId], references: [id], onDelete: Cascade)
-  reportId    String
-  report      User           @relation("OneOnOneReport", fields: [reportId], references: [id], onDelete: Cascade)
-  scheduledAt DateTime
-  /// OPEN | DONE
-  status      String         @default("OPEN")
-  notes       String?
-  createdAt   DateTime       @default(now())
-  items       OneOnOneItem[]
-
-  @@index([managerId, reportId, scheduledAt])
-  @@map("one_on_ones")
-}
-
-model OneOnOneItem {
-  id         String    @id @default(cuid())
-  oneOnOneId String
-  oneOnOne   OneOnOne  @relation(fields: [oneOnOneId], references: [id], onDelete: Cascade)
-  authorId   String
-  author     User      @relation("OneOnOneItemAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  /// TOPIC (pauta) | ACTION (item de ação)
-  kind       String    @default("TOPIC")
-  text       String
-  done       Boolean   @default(false)
-  ownerId    String?
-  owner      User?     @relation("OneOnOneItemOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  dueAt      DateTime?
-  createdAt  DateTime  @default(now())
-
-  @@index([oneOnOneId])
-  @@map("one_on_one_items")
-}
-
-// ───────────── PDI ─────────────
-
-model DevelopmentPlan {
-  id          String              @id @default(cuid())
-  userId      String
-  user        User                @relation("PlanOwner", fields: [userId], references: [id], onDelete: Cascade)
-  createdById String
-  createdBy   User                @relation("PlanCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  title       String
-  focus       String?
-  /// ACTIVE | DONE | CANCELED
-  status      String              @default("ACTIVE")
-  dueDate     DateTime?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  actions     DevelopmentAction[]
-
-  @@index([userId])
-  @@map("development_plans")
-}
-
-model DevelopmentAction {
-  id        String          @id @default(cuid())
-  planId    String
-  plan      DevelopmentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  text      String
-  /// CURSO | PRATICA | MENTORIA | LEITURA | OUTRO
-  kind      String          @default("PRATICA")
-  dueDate   DateTime?
-  done      Boolean         @default(false)
-  doneAt    DateTime?
-  createdAt DateTime        @default(now())
-
-  @@index([planId])
-  @@map("development_actions")
 }
 
 // ───────────── Comunicado de leitura obrigatória ─────────────

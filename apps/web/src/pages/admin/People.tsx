@@ -11,6 +11,7 @@ import type { Department, DirectoryUser, UserDetail } from '@/lib/types';
 import { fromNow } from '@/lib/format';
 import { Avatar, Badge, Button, Checkbox, Field, Input, Modal, PageHeader, PageLoader, Select, UserPicker } from '@/components/ui';
 import { AvatarUpload } from '@/components/AvatarUpload';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 const WEEKDAYS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 
@@ -71,7 +72,27 @@ function PersonForm({ existing, users, depts, meRole, onClose, onSaved }: { exis
     onError: (e) => toast.error(errorMessage(e)),
   });
 
+  const submit = async () => {
+    if (existing?.active && !f.active) {
+      const ok = await confirmDialog({
+        title: `Desligar ${existing.name.split(' ')[0]}?`,
+        description: 'A pessoa perde o acesso ao Hub na hora e sai das listas, do organograma e dos indicadores. O histórico fica guardado e dá para reativar depois.',
+        confirmLabel: 'Desligar',
+        tone: 'danger',
+      });
+      if (!ok) return;
+    }
+    save.mutate();
+  };
+
   const resetPwd = async () => {
+    const ok = await confirmDialog({
+      title: 'Gerar uma nova senha?',
+      description: `A senha atual de ${existing!.name.split(' ')[0]} para de funcionar. A nova aparece aqui para você repassar.`,
+      confirmLabel: 'Gerar senha',
+      tone: 'warn',
+    });
+    if (!ok) return;
     const r = await api.post<{ temporaryPassword: string }>(`/users/${existing!.id}/reset-password`);
     toast.success(`Nova senha provisória: ${r.temporaryPassword}`, { duration: 20000 });
   };
@@ -91,7 +112,7 @@ function PersonForm({ existing, users, depts, meRole, onClose, onSaved }: { exis
               Resetar senha
             </Button>
           )}
-          <Button loading={save.isPending} disabled={f.name.length < 2 || !f.email} onClick={() => save.mutate()}>
+          <Button loading={save.isPending} disabled={f.name.length < 2 || !f.email} onClick={submit}>
             Salvar
           </Button>
         </>

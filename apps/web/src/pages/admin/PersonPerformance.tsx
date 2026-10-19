@@ -15,6 +15,7 @@ import type { PersonPerformanceData } from '@/lib/types';
 import { dueLabel, fmtDate, fmtDateTime, fmtDayKey, fromNow, isoToLocalInput, localInputToIso, pct } from '@/lib/format';
 import { Avatar, Badge, Button, Checkbox, EmptyState, Field, Input, Modal, PageLoader, Panel, ProgressBar, ScoreRing, Select, StatCard, Tabs, Textarea } from '@/components/ui';
 import { NewTaskModal } from '../app/Tasks';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 const axis = { fontSize: 11, fill: '#9AA1B5' };
 const tooltipStyle = { borderRadius: 8, border: '1px solid #E3E6EC', fontSize: 12, boxShadow: '0 8px 24px -8px rgba(13,19,48,.2)' };
@@ -148,7 +149,7 @@ export default function PersonPerformance({ self }: { self?: boolean }) {
   }));
 
   const removeFeedback = async (fid: string) => {
-    if (!confirm('Excluir este registro?')) return;
+    if (!(await confirmDialog({ title: 'Excluir este registro?', description: 'O feedback some do histórico da pessoa. Não dá para desfazer.', confirmLabel: 'Excluir', tone: 'danger' }))) return;
     await api.del(`/performance/feedbacks/${fid}`);
     qc.invalidateQueries({ queryKey: ['person-performance'] });
   };

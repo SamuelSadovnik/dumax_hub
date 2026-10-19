@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import {
   BarChart3, Bell, Briefcase, Building2, CalendarDays, CheckSquare, ChevronsLeft, ChevronsRight, Clock, FileSignature,
   Fingerprint, HeartPulse, Home, LogOut, Megaphone, Menu as MenuIcon, MessageCircle, Network, ShieldCheck, Smile, Sparkles,
-  Target, User, Users, Volume2, VolumeX, X, Compass, ExternalLink, Handshake, Sprout, UserPlus, Library,
+  Target, User, Users, Volume2, VolumeX, X, Compass, ExternalLink, UserPlus, Library,
 } from 'lucide-react';
 import { ROLE_LABEL } from '@dumax/shared';
 import { useAuth, useMe } from '@/lib/auth';
@@ -288,8 +288,6 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
               { to: '/admin', label: 'Visão geral', icon: <BarChart3 />, end: true },
               { to: '/admin/ponto', label: 'Ponto do time', icon: <Clock /> },
               { to: '/admin/metas', label: 'Metas do time', icon: <Target /> },
-              { to: '/admin/1-1', label: '1:1 com o time', icon: <Handshake /> },
-              { to: '/admin/pdi', label: 'PDI do time', icon: <Sprout /> },
               { to: '/admin/perfis', label: 'Mapa de perfis', icon: <Compass /> },
               ...(isHR ? [{ to: '/admin/clima', label: 'Clima', icon: <HeartPulse /> }] : []),
             ],
@@ -337,8 +335,6 @@ export function AppShell({ portal }: { portal: 'colaborador' | 'admin' }) {
             items: [
               { to: '/desempenho', label: 'Meu desempenho', icon: <BarChart3 /> },
               { to: '/metas', label: 'Minhas metas', icon: <Target /> },
-              { to: '/1-1', label: '1:1', icon: <Handshake /> },
-              { to: '/pdi', label: 'Meu PDI', icon: <Sprout /> },
               { to: '/ponto', label: 'Meu ponto', icon: <Fingerprint /> },
               { to: '/perfil-comportamental', label: 'Meu perfil', icon: <Compass /> },
             ],

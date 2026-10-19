@@ -16,6 +16,7 @@ import { useSocketEvent } from '@/lib/socket';
 import type { Task, TaskDetail, UserLite } from '@/lib/types';
 import { dueLabel, fmtDateTime, fromNow, isoToLocalInput, localInputToIso } from '@/lib/format';
 import { Avatar, Badge, Button, Drawer, EmptyState, Field, Input, Modal, PageHeader, PageLoader, Select, Tabs, Textarea, UserPicker } from '@/components/ui';
+import { confirmDialog } from '@/components/ConfirmDialog';
 
 type Scope = 'mine' | 'created' | 'team' | 'all';
 
@@ -194,7 +195,7 @@ function TaskDrawer({ id, onClose }: { id: string | null; onClose: () => void })
     refresh();
   };
   const remove = async () => {
-    if (!confirm('Excluir esta demanda?')) return;
+    if (!(await confirmDialog({ title: 'Excluir esta demanda?', description: 'Comentários, checklist e histórico vão junto. Se ela só não precisa mais ser feita, prefira concluir.', confirmLabel: 'Excluir demanda', tone: 'danger' }))) return;
     await api.del(`/tasks/${id}`);
     refresh();
     onClose();

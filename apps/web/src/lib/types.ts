@@ -16,7 +16,6 @@ import type {
   ScreeningAnswer,
   ScreeningQuestion,
   Recommendation,
-  DevActionKind,
 } from '@dumax/shared';
 
 export type { UserLite, Me } from '@dumax/shared';
@@ -592,7 +591,6 @@ export interface License {
 
 export interface Inbox {
   mustRead: { id: string; title: string; createdAt: string }[];
-  oneOnOneActions: { id: string; text: string; dueAt: string | null; withUserId: string }[];
   reviews: { id: string; title: string; assignee: { id: string; name: string; avatarUrl: string | null } }[];
   celebrations: { user: { id: string; name: string; avatarUrl: string | null; jobTitle: string | null }; kind: 'BIRTHDAY' | 'ANNIVERSARY'; inDays: number; years?: number }[];
   extensionRequests: { id: string; requestedDueAt: string; reason: string; requester: { id: string; name: string; avatarUrl: string | null }; task: { id: string; title: string } }[];
@@ -615,63 +613,3 @@ export interface AiReading {
   generatedAt: string;
 }
 
-// ───────────── 1:1 ─────────────
-export interface OneOnOneItem {
-  id: string;
-  oneOnOneId: string;
-  kind: 'TOPIC' | 'ACTION';
-  text: string;
-  done: boolean;
-  dueAt: string | null;
-  createdAt: string;
-  author: UserLite;
-  owner: UserLite | null;
-}
-export interface OneOnOne {
-  id: string;
-  managerId: string;
-  reportId: string;
-  scheduledAt: string;
-  status: 'OPEN' | 'DONE';
-  notes: string | null;
-  items: OneOnOneItem[];
-}
-export interface OneOnOnePairSummary {
-  user: UserLite;
-  next: Pick<OneOnOne, 'id' | 'scheduledAt' | 'status'> | null;
-  last: Pick<OneOnOne, 'id' | 'scheduledAt' | 'status'> | null;
-  openActions: number;
-}
-export interface OneOnOneHome {
-  reports: OneOnOnePairSummary[];
-  manager: OneOnOnePairSummary | null;
-}
-export interface OneOnOnePair {
-  manager: UserLite;
-  report: UserLite;
-  meetings: OneOnOne[];
-  openActions: OneOnOneItem[];
-}
-
-// ───────────── PDI ─────────────
-export interface DevelopmentAction {
-  id: string;
-  planId: string;
-  text: string;
-  kind: DevActionKind;
-  dueDate: string | null;
-  done: boolean;
-  doneAt: string | null;
-  createdAt: string;
-}
-export interface DevelopmentPlan {
-  id: string;
-  userId: string;
-  title: string;
-  focus: string | null;
-  status: 'ACTIVE' | 'DONE' | 'CANCELED';
-  dueDate: string | null;
-  createdAt: string;
-  createdBy: UserLite;
-  actions: DevelopmentAction[];
-}
